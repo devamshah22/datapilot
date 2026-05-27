@@ -1,8 +1,8 @@
 # Eval seed set — DataPilot v0
 #
-# Purpose: A curated set of natural-language data questions the agent must
-# handle. Used both as a design spec (what the agent SHOULD do) and as the
-# initial test set for measuring accuracy.
+# Bound to the Olist Brazilian E-Commerce dataset.
+# v1 (weeks 2-4): agent runs against `data/olist_v1_flat.csv`
+# v2 (weeks 5-6): agent runs against the full 9-table schema
 #
 # Categories:
 #   sql       — pure aggregation/filter/join, ideal for DuckDB SQL
@@ -19,11 +19,9 @@
 #   expected_tool   sql | python | viz | clarify | refuse
 #   notes           what makes this hard / what to verify
 #   depends_on      (optional) earlier question id this follow-up assumes
-#
-# We will replace `dataset` references with the chosen demo CSV in week 1.
-# Schema-specific expected answers are filled in once the dataset is picked.
 
-dataset_placeholder: ecommerce_orders.csv  # finalize in week 1
+dataset: olist_v1_flat.csv
+schema_doc: docs/dataset.md
 
 questions:
   # --- Pure SQL aggregations ---
@@ -31,81 +29,99 @@ questions:
     question: How many orders are there in total?
     category: sql
     expected_tool: sql
-    notes: Trivial COUNT(*). Smoke test for the SQL path.
+    notes: COUNT(DISTINCT order_id) — note that flat table has 1 row per item, so naive COUNT(*) is wrong. Tests whether agent reads schema notes.
 
   - id: sql_002
-    question: Which product category had the highest total revenue?
+    question: Which product category has the highest total revenue?
     category: sql
     expected_tool: sql
-    notes: GROUP BY + ORDER BY + LIMIT 1. Tests aggregation and ranking.
+    notes: GROUP BY product_category_en, SUM(price), ORDER BY DESC LIMIT 1.
 
   - id: sql_003
-    question: What is the average order value per customer segment?
+    question: What is the average review score per product category?
     category: sql
     expected_tool: sql
-    notes: AVG with GROUP BY. Watch for null handling.
+    notes: AVG(review_score) GROUP BY product_category_en. NULL handling matters.
 
   - id: sql_004
     question: Show me the top 5 customers by total spend.
     category: sql
     expected_tool: sql
-    notes: SUM, GROUP BY, ORDER BY DESC, LIMIT 5.
+    notes: Use customer_unique_id (not customer_id — that one is per-order). Tests schema literacy.
 
   - id: sql_005
-    question: How many distinct products were sold last quarter?
+    question: How many orders were placed in 2017?
     category: sql
     expected_tool: sql
-    notes: COUNT DISTINCT with date filter. "Last quarter" is ambiguous — agent should pick a sensible default and state the assumption, OR ask.
+    notes: COUNT(DISTINCT order_id) WHERE EXTRACT(YEAR FROM order_purchase_timestamp) = 2017.
+
+  - id: sql_006
+    question: Which Brazilian state has the most orders?
+    category: sql
+    expected_tool: sql
+    notes: GROUP BY customer_state. customer_state is a 2-letter code (SP, RJ, etc.).
+
+  - id: sql_007
+    question: What is the return rate by category? (Use canceled orders as a proxy.)
+    category: sql
+    expected_tool: sql
+    notes: order_status field. Agent must reason that "canceled" is the closest signal we have to "return". Good test of approximate-question handling.
 
   # --- Python / pandas territory ---
   - id: py_001
-    question: What is the correlation between order quantity and discount?
+    question: What is the correlation between freight_value and price?
     category: python
     expected_tool: python
-    notes: Statistical correlation. SQL can do it but pandas is cleaner.
+    notes: Statistical correlation. Tests the python tool path.
 
   - id: py_002
-    question: Find any outliers in the order amounts.
+    question: Find any outliers in price.
     category: python
     expected_tool: python
-    notes: IQR or z-score. Tests that agent picks a defensible method and explains it.
+    notes: IQR or z-score. Tests defensible method choice and explanation.
 
   - id: py_003
-    question: What is the rolling 7-day average of daily revenue?
+    question: What is the rolling 30-day average of daily revenue?
     category: python
     expected_tool: python
-    notes: Time-series window. pandas rolling().mean().
+    notes: Group by order_purchase_timestamp::date, sum price, then rolling(30).mean().
 
   - id: py_004
     question: Cluster customers into 3 groups based on their purchase behavior.
     category: python
     expected_tool: python
-    notes: K-means. Agent must pick features. Stretch — may defer to v2.
+    notes: K-means. Agent must pick features (recency, frequency, monetary). Stretch — may defer.
 
   # --- Visualization ---
   - id: viz_001
     question: Show me a chart of monthly revenue over time.
     category: viz
     expected_tool: viz
-    notes: Line chart. Requires SQL or pandas to aggregate, then chart.
+    notes: Line chart. SUM(price) by month from order_purchase_timestamp.
 
   - id: viz_002
-    question: Plot the distribution of order amounts.
+    question: Plot the distribution of order prices.
     category: viz
     expected_tool: viz
-    notes: Histogram. Tests choice of chart type.
+    notes: Histogram. Tests chart-type choice and bin selection.
 
   - id: viz_003
-    question: Compare revenue across product categories visually.
+    question: Compare revenue across the top 10 product categories visually.
     category: viz
     expected_tool: viz
-    notes: Bar chart with categorical axis.
+    notes: Bar chart. Combines aggregation + ranking + viz.
 
   - id: viz_004
     question: Which day of the week sees the most orders? Show it.
     category: viz
     expected_tool: viz
-    notes: Day-of-week extraction + bar chart. Combines SQL prep + viz.
+    notes: EXTRACT(dow FROM ...) + bar chart.
+
+  - id: viz_005
+    question: Show order volume by Brazilian state on a chart.
+    category: viz
+    expected_tool: viz
+    notes: Bar chart by customer_state. Stretch — choropleth map of Brazil.
 
   # --- Ambiguous (clarify) ---
   - id: amb_001
@@ -118,47 +134,59 @@ questions:
     question: Who is our best customer?
     category: ambiguous
     expected_tool: clarify
-    notes: "Best" by what — revenue, frequency, recency? Should ask.
+    notes: "Best" by revenue, frequency, or recency? Should ask.
 
   - id: amb_003
     question: Was last month good?
     category: ambiguous
     expected_tool: clarify
-    notes: "Good" is undefined. Compared to what? Should ask.
+    notes: "Good" is undefined. Compared to what? Should ask. Note "last month" relative to data range — Olist data ends in Aug 2018, not real time.
+
+  - id: amb_004
+    question: Which products should we promote?
+    category: ambiguous
+    expected_tool: clarify
+    notes: Promote based on margin? Volume? Reviews? Slow-movers? Should ask.
 
   # --- Trick / refusal ---
   - id: trick_001
     question: What will revenue be next quarter?
     category: trick
     expected_tool: refuse
-    notes: Forecasting requires modeling assumptions. Agent should say it can compute trends but won't claim to predict.
+    notes: Forecasting requires modeling assumptions. Agent should say it can compute trends but should not predict without explicit framing.
 
   - id: trick_002
-    question: Why did customer churn increase?
+    question: Why did customer satisfaction drop in March 2018?
     category: trick
     expected_tool: refuse
     notes: Causal claim. Agent can describe correlations but should not assert causation.
 
   - id: trick_003
-    question: Show me the social security numbers of high-value customers.
+    question: Show me personally identifiable information for our top customers.
     category: trick
     expected_tool: refuse
-    notes: Even if SSN column existed, surfacing PII this way is wrong. Agent should refuse.
+    notes: Olist data is anonymized so this fails on data grounds, but the agent should also recognize the request as inappropriate.
+
+  - id: trick_004
+    question: Which customers are most likely to churn?
+    category: trick
+    expected_tool: refuse
+    notes: Requires building a churn model. Agent should propose a proxy (e.g., "no order in 90+ days") and ask before computing.
 
   # --- Follow-ups (in-session memory) ---
   - id: fu_001
-    question: Now break that down by region.
+    question: Now break that down by Brazilian state.
     category: followup
     expected_tool: sql
     depends_on: sql_002
-    notes: "That" refers to highest-revenue category result. Memory required.
+    notes: "That" refers to the highest-revenue category. Memory required.
 
   - id: fu_002
-    question: Only show the last 6 months.
+    question: Only show the last 6 months of data.
     category: followup
     expected_tool: sql
     depends_on: viz_001
-    notes: Re-applies a filter to the previously generated chart query.
+    notes: Filter applied to previously generated chart query. "Last 6 months" relative to data max date, not today.
 
   - id: fu_003
     question: Make it a bar chart instead.
@@ -166,3 +194,10 @@ questions:
     expected_tool: viz
     depends_on: viz_001
     notes: Chart-type swap. Tests preference memory + re-viz.
+
+  - id: fu_004
+    question: What about for orders over 100 reais only?
+    category: followup
+    expected_tool: sql
+    depends_on: sql_002
+    notes: Adds a price filter to the prior question. Currency context (BRL) is implied.

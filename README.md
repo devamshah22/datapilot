@@ -63,8 +63,20 @@ datapilot/
 ├── frontend/         Next.js UI (later)
 ├── evals/            Eval question set + harness
 ├── data/             Dev CSVs (gitignored)
-└── docs/             Architecture, blog drafts
+├── scripts/          Dataset and one-off utility scripts
+└── docs/             Architecture, dataset notes, blog drafts
 ```
+
+## Development dataset
+
+DataPilot is built against the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — 100k anonymized orders across 9 related tables.
+
+- **v1 (early weeks):** agent operates on a denormalized 25-column flat CSV (`olist_v1_flat.csv`, 112k rows) for fast iteration.
+- **v2 (later weeks):** agent operates on the full multi-table schema, demonstrating cross-table reasoning.
+
+See [docs/dataset.md](docs/dataset.md) for full details, schema, and reproduction steps.
+
+> Dataset license: CC-BY-NC-SA-4.0. Used for non-commercial educational purposes.
 
 ## Local development
 
