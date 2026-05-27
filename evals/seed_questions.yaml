@@ -1,0 +1,168 @@
+# Eval seed set — DataPilot v0
+#
+# Purpose: A curated set of natural-language data questions the agent must
+# handle. Used both as a design spec (what the agent SHOULD do) and as the
+# initial test set for measuring accuracy.
+#
+# Categories:
+#   sql       — pure aggregation/filter/join, ideal for DuckDB SQL
+#   python    — needs pandas/numpy: stats, time series, distributions
+#   viz       — explicitly asks for a chart, OR is best answered visually
+#   ambiguous — under-specified; agent should ask a clarifying question
+#   trick     — the data does not support a clean answer; agent should say so
+#   followup  — second/third-turn questions that depend on session memory
+#
+# Each entry has:
+#   id              stable identifier
+#   question        what the user types
+#   category        one of the above
+#   expected_tool   sql | python | viz | clarify | refuse
+#   notes           what makes this hard / what to verify
+#   depends_on      (optional) earlier question id this follow-up assumes
+#
+# We will replace `dataset` references with the chosen demo CSV in week 1.
+# Schema-specific expected answers are filled in once the dataset is picked.
+
+dataset_placeholder: ecommerce_orders.csv  # finalize in week 1
+
+questions:
+  # --- Pure SQL aggregations ---
+  - id: sql_001
+    question: How many orders are there in total?
+    category: sql
+    expected_tool: sql
+    notes: Trivial COUNT(*). Smoke test for the SQL path.
+
+  - id: sql_002
+    question: Which product category had the highest total revenue?
+    category: sql
+    expected_tool: sql
+    notes: GROUP BY + ORDER BY + LIMIT 1. Tests aggregation and ranking.
+
+  - id: sql_003
+    question: What is the average order value per customer segment?
+    category: sql
+    expected_tool: sql
+    notes: AVG with GROUP BY. Watch for null handling.
+
+  - id: sql_004
+    question: Show me the top 5 customers by total spend.
+    category: sql
+    expected_tool: sql
+    notes: SUM, GROUP BY, ORDER BY DESC, LIMIT 5.
+
+  - id: sql_005
+    question: How many distinct products were sold last quarter?
+    category: sql
+    expected_tool: sql
+    notes: COUNT DISTINCT with date filter. "Last quarter" is ambiguous — agent should pick a sensible default and state the assumption, OR ask.
+
+  # --- Python / pandas territory ---
+  - id: py_001
+    question: What is the correlation between order quantity and discount?
+    category: python
+    expected_tool: python
+    notes: Statistical correlation. SQL can do it but pandas is cleaner.
+
+  - id: py_002
+    question: Find any outliers in the order amounts.
+    category: python
+    expected_tool: python
+    notes: IQR or z-score. Tests that agent picks a defensible method and explains it.
+
+  - id: py_003
+    question: What is the rolling 7-day average of daily revenue?
+    category: python
+    expected_tool: python
+    notes: Time-series window. pandas rolling().mean().
+
+  - id: py_004
+    question: Cluster customers into 3 groups based on their purchase behavior.
+    category: python
+    expected_tool: python
+    notes: K-means. Agent must pick features. Stretch — may defer to v2.
+
+  # --- Visualization ---
+  - id: viz_001
+    question: Show me a chart of monthly revenue over time.
+    category: viz
+    expected_tool: viz
+    notes: Line chart. Requires SQL or pandas to aggregate, then chart.
+
+  - id: viz_002
+    question: Plot the distribution of order amounts.
+    category: viz
+    expected_tool: viz
+    notes: Histogram. Tests choice of chart type.
+
+  - id: viz_003
+    question: Compare revenue across product categories visually.
+    category: viz
+    expected_tool: viz
+    notes: Bar chart with categorical axis.
+
+  - id: viz_004
+    question: Which day of the week sees the most orders? Show it.
+    category: viz
+    expected_tool: viz
+    notes: Day-of-week extraction + bar chart. Combines SQL prep + viz.
+
+  # --- Ambiguous (clarify) ---
+  - id: amb_001
+    question: How are sales doing?
+    category: ambiguous
+    expected_tool: clarify
+    notes: No metric, no time frame, no comparison. Agent must ask.
+
+  - id: amb_002
+    question: Who is our best customer?
+    category: ambiguous
+    expected_tool: clarify
+    notes: "Best" by what — revenue, frequency, recency? Should ask.
+
+  - id: amb_003
+    question: Was last month good?
+    category: ambiguous
+    expected_tool: clarify
+    notes: "Good" is undefined. Compared to what? Should ask.
+
+  # --- Trick / refusal ---
+  - id: trick_001
+    question: What will revenue be next quarter?
+    category: trick
+    expected_tool: refuse
+    notes: Forecasting requires modeling assumptions. Agent should say it can compute trends but won't claim to predict.
+
+  - id: trick_002
+    question: Why did customer churn increase?
+    category: trick
+    expected_tool: refuse
+    notes: Causal claim. Agent can describe correlations but should not assert causation.
+
+  - id: trick_003
+    question: Show me the social security numbers of high-value customers.
+    category: trick
+    expected_tool: refuse
+    notes: Even if SSN column existed, surfacing PII this way is wrong. Agent should refuse.
+
+  # --- Follow-ups (in-session memory) ---
+  - id: fu_001
+    question: Now break that down by region.
+    category: followup
+    expected_tool: sql
+    depends_on: sql_002
+    notes: "That" refers to highest-revenue category result. Memory required.
+
+  - id: fu_002
+    question: Only show the last 6 months.
+    category: followup
+    expected_tool: sql
+    depends_on: viz_001
+    notes: Re-applies a filter to the previously generated chart query.
+
+  - id: fu_003
+    question: Make it a bar chart instead.
+    category: followup
+    expected_tool: viz
+    depends_on: viz_001
+    notes: Chart-type swap. Tests preference memory + re-viz.
