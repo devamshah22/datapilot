@@ -1,0 +1,60 @@
+# Secrets — NEVER commit
+.env
+.env.local
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Data — user uploads should never end up in git
+data/*.csv
+data/*.parquet
+data/*.xlsx
+data/*.db
+data/*.sqlite
+!data/.gitkeep
+!data/README.md
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs / runtime
+*.log
+logs/
+uploads/
+tmp/
+.cache/
+
+# Eval outputs (keep eval set, ignore run results)
+evals/results/
+evals/runs/
