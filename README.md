@@ -95,7 +95,20 @@ copy .env.example .env
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r backend/requirements.txt
+
+# 4. Fetch data
+.\.venv\Scripts\kaggle.exe datasets download -d olistbr/brazilian-ecommerce -p data/ --unzip
+.\.venv\Scripts\python.exe scripts\load_olist.py
+
+# 5. Ask one question (CLI)
+.\.venv\Scripts\python.exe scripts\ask.py "Which product category has the highest revenue?"
+
+# 6. Or run the API
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --app-dir backend
+# then POST to http://localhost:8000/ask with body {"question": "..."}
 ```
+
+> **Heads up (Windows):** Don't keep the dataset CSV open in Excel while running the app or tests. Excel takes an exclusive lock and DuckDB can't read it. Close Excel first.
 
 Frontend setup will be added once the backend MVP is working.
 

@@ -121,7 +121,14 @@ def main() -> int:
     print(f"  flat: {n_flat:,} rows x {n_cols} columns  ({time.perf_counter() - t0:.2f}s)")
 
     out_csv = DATA / "olist_v1_flat.csv"
-    con.execute(f"COPY flat TO '{out_csv.as_posix()}' (HEADER, DELIMITER ',')")
+    # Explicit ISO timestamp/date formats so the resulting CSV round-trips
+    # cleanly when reloaded with TIMESTAMP type overrides.
+    con.execute(
+        f"COPY flat TO '{out_csv.as_posix()}' "
+        "(HEADER, DELIMITER ',', "
+        "TIMESTAMPFORMAT '%Y-%m-%d %H:%M:%S', "
+        "DATEFORMAT '%Y-%m-%d')"
+    )
     size_mb = out_csv.stat().st_size / (1024 * 1024)
     print(f"  wrote {out_csv.name}  ({size_mb:.1f} MB)")
 
