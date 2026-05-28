@@ -104,8 +104,9 @@ pip install -r backend/requirements.txt
 .\.venv\Scripts\python.exe scripts\ask.py "Which product category has the highest revenue?"
 
 # 6. Or run the API
-.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --app-dir backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir backend
 # then POST to http://localhost:8000/ask with body {"question": "..."}
+# Swagger UI at http://localhost:8000/docs
 ```
 
 > **Heads up (Windows):** Don't keep the dataset CSV open in Excel while running the app or tests. Excel takes an exclusive lock and DuckDB can't read it. Close Excel first.

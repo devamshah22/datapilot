@@ -11,9 +11,11 @@ response with the error message attached.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
+import pandas as pd
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -22,6 +24,71 @@ from app.config import settings
 from app.tools.sql import get_sql_tool
 
 logger = logging.getLogger(__name__)
+
+# Number of decimal places to retain on floating-point results. Floats from
+# aggregations like SUM accumulate microscopic precision noise; trimming to
+# 3dp keeps results meaningful for currency and ratios while removing
+# artifacts like 1149781.8199999975.
+NUMERIC_DECIMALS = 3
+
+def _clean_dataframe(df: pd.DataFrame, decimals: int = NUMERIC_DECIMALS) -> pd.DataFrame:
+    """Round float columns to remove aggregation noise.
+
+    Float aggregations like SUM accumulate microscopic precision artifacts
+    (e.g., 1149781.8199999975). Olist currency data has at most 2 decimals
+    of real signal, so rounding to 3 leaves headroom for ratios and averages
+    while keeping output clean.
+
+    NaN values are NOT converted here — that has to happen at the dict level
+    because pandas can't hold None inside a float64 column.
+    """
+    if df.empty:
+        return df
+
+    df = df.copy()
+    float_cols = df.select_dtypes(include=["float", "float64", "float32"]).columns
+    if len(float_cols):
+        df[float_cols] = df[float_cols].round(decimals)
+    return df
+
+
+def _sanitize_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace NaN with None in serialized rows so JSON encoding works.
+
+    Run this AFTER ``df.to_dict(orient="records")`` — at that point we have
+    plain Python objects and can swap floats for None safely.
+    """
+    for row in records:
+        for key, value in row.items():
+            if isinstance(value, float) and math.isnan(value):
+                row[key] = None
+    return records
+
+
+def _fmt_cell(value: Any) -> str:
+    """Human-friendly cell format used in the answer string.
+
+    - Integers: thousand-separated, no decimals
+    - Floats:   thousand-separated, up to NUMERIC_DECIMALS decimals, trailing zeros stripped
+    - None/NaN: empty string
+    - Other:    str()
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        if math.isnan(value):
+            return ""
+        rounded = round(value, NUMERIC_DECIMALS)
+        if rounded == int(rounded):
+            return f"{int(rounded):,}"
+        s = f"{rounded:,.{NUMERIC_DECIMALS}f}".rstrip("0").rstrip(".")
+        return s
+    return str(value)
+
 
 # --- LLM client (singleton) -------------------------------------------------
 _llm: ChatGoogleGenerativeAI | None = None
@@ -95,12 +162,12 @@ def execute_sql_node(state: AgentState) -> dict[str, Any]:
 
     df = result.dataframe
     assert df is not None  # narrowed by result.ok
-    # Convert to plain JSON-serializable rows for the API
-    rows = df.head(50).to_dict(orient="records")
+    cleaned = _clean_dataframe(df)
+    rows = _sanitize_records(cleaned.head(50).to_dict(orient="records"))
     return {
         "columns": result.columns,
         "rows": rows,
-        "row_count": len(df),
+        "row_count": len(cleaned),
         "error": "",  # explicitly clear any prior error in state
     }
 
@@ -129,17 +196,17 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     if row_count == 1 and len(cols) == 1:
         # Single scalar — most common for COUNT/SUM/AVG questions
         value = rows[0][cols[0]]
-        return {"answer": f"{cols[0]}: {value}"}
+        return {"answer": f"{cols[0]}: {_fmt_cell(value)}"}
 
     # Small table — render as compact text
     if row_count <= 10:
         header = " | ".join(cols)
-        body = "\n".join(" | ".join(str(r[c]) for c in cols) for r in rows)
+        body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows)
         return {"answer": f"{header}\n{body}"}
 
     # Larger result — show first 10 and total count
     header = " | ".join(cols)
-    body = "\n".join(" | ".join(str(r[c]) for c in cols) for r in rows[:10])
+    body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows[:10])
     return {
         "answer": (
             f"{row_count} rows returned. First 10:\n{header}\n{body}"
