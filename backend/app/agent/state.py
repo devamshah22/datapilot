@@ -1,12 +1,14 @@
 """LangGraph state shared across nodes.
 
-We use a TypedDict so LangGraph can merge updates correctly. Keep it small
-in v1 — every field added here pushes us toward over-engineering before
-we know what we need.
+We use a TypedDict so LangGraph can merge updates correctly. Keep it small —
+every field added here pushes us toward over-engineering before we know
+what we need.
 """
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+
+Route = Literal["sql", "viz", "clarify", "refuse"]
 
 
 class AgentState(TypedDict, total=False):
@@ -16,14 +18,21 @@ class AgentState(TypedDict, total=False):
     # Schema injected at graph entry so nodes don't reach into the SQL tool
     schema: str
 
-    # Filled by write_sql node
+    # Filled by router_node
+    route: Route
+    route_reason: str
+
+    # Filled by write_sql node (only on sql / viz routes)
     sql: str
 
-    # Filled by execute_sql node
+    # Filled by execute_sql node (only on sql / viz routes)
     columns: list[str]
     rows: list[dict[str, Any]]
     row_count: int
     error: str
+
+    # Filled by make_chart node (only on viz route)
+    chart_spec: dict[str, Any]
 
     # Final user-facing answer composed at the end of the graph
     answer: str

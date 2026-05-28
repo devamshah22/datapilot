@@ -30,13 +30,24 @@ def main() -> int:
     print("=" * 70)
     print(f"Q: {question}")
     print("-" * 70)
-    print(f"SQL:\n{final.get('sql', '')}")
+    print(f"Route: {final.get('route', '?')} -- {final.get('route_reason', '')}")
+    if final.get("sql"):
+        print("-" * 70)
+        print(f"SQL:\n{final['sql']}")
     print("-" * 70)
     if final.get("error"):
         print(f"ERROR: {final['error']}")
     else:
         print(f"Answer:\n{final.get('answer', '')}")
-        print(f"\n({final.get('row_count', 0)} rows, columns: {final.get('columns', [])})")
+        if final.get("chart_spec"):
+            chart = final["chart_spec"]
+            traces = chart.get("data", [])
+            chart_type = traces[0].get("type") if traces else "?"
+            title = chart.get("layout", {}).get("title", "(no title)")
+            print(f"\nChart: type={chart_type}  title={title!r}")
+            print(json.dumps(chart, default=str)[:300] + " ...")
+        elif final.get("route") in ("sql", "viz"):
+            print(f"\n({final.get('row_count', 0)} rows, columns: {final.get('columns', [])})")
     print("=" * 70)
     return 0 if not final.get("error") else 2
 

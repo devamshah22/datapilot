@@ -115,13 +115,13 @@ Frontend setup will be added once the backend MVP is working.
 
 ## Roadmap
 
-- [ ] Week 1 — Project scaffold, eval seed set, CSV-to-DuckDB plumbing
-- [ ] Week 2 — LangGraph agent skeleton, sandboxed Python tool
-- [ ] Week 3 — Visualization tool, structured router prompt
+- [x] Week 1 — Project scaffold, eval seed set, CSV-to-DuckDB plumbing
+- [x] Week 2 — Minimal end-to-end SQL agent (LangGraph + Gemini + FastAPI)
+- [x] Week 3 — Router (SQL/viz/clarify/refuse) and Plotly visualization tool
 - [ ] Week 4 — Self-correction loop and output validator
-- [ ] Week 5 — In-session memory, auto-EDA on upload
+- [ ] Week 5 — Pandas tool (sandboxed); in-session memory; auto-EDA on upload
 - [ ] Week 6 — Eval suite, failure-mode analysis
-- [ ] Week 7 — Deployment, demo video, blog post
+- [ ] Week 7 — Frontend, deployment, demo video, blog post
 
 ## License
 

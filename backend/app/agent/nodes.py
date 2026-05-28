@@ -1,11 +1,15 @@
-"""Graph nodes for the v1 agent.
+"""Graph nodes for the agent.
 
-Three nodes:
-  1. write_sql        — LLM (Gemini) writes a single DuckDB query for the question
-  2. execute_sql      — runs the query, captures error if any
-  3. compose_answer   — turns the SQL result into a short user-facing answer
+After session 3:
+  router_node       — picks a route (sql / viz / clarify / refuse)
+  write_sql_node    — LLM (Gemini) writes a single DuckDB query
+  execute_sql_node  — runs the query, captures error if any
+  make_chart_node   — turns a SQL result into a Plotly chart spec (viz route)
+  clarify_node      — surfaces the router's clarifying question
+  refuse_node       — surfaces the router's refusal explanation
+  compose_answer    — composes the final user-facing answer
 
-v1 has NO self-correction or tool routing. Failures pass through to the
+Self-correction is NOT in this version; failures pass through to the
 response with the error message attached.
 """
 from __future__ import annotations
@@ -173,11 +177,22 @@ def execute_sql_node(state: AgentState) -> dict[str, Any]:
 
 
 def compose_answer_node(state: AgentState) -> dict[str, Any]:
-    """Format a short user-facing answer from the SQL result.
+    """Format a short user-facing answer.
 
-    v1 keeps this rule-based (no extra LLM call) to minimize cost and latency.
-    A future version can use the LLM to summarize complex tables.
+    Branches on `state["route"]` so each path gets an appropriate phrasing.
+    Rule-based for cost/latency reasons; the LLM has already done its work
+    upstream.
     """
+    route = state.get("route", "sql")
+
+    # Clarify and refuse routes already wrote their text into route_reason.
+    if route == "clarify":
+        return {"answer": state.get("route_reason", "Could you clarify your question?")}
+
+    if route == "refuse":
+        return {"answer": state.get("route_reason", "I can't answer that with this data.")}
+
+    # SQL or viz with an execution error
     if state.get("error"):
         return {
             "answer": (
@@ -189,6 +204,16 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     rows = state.get("rows", [])
     cols = state.get("columns", [])
     row_count = state.get("row_count", 0)
+
+    # Viz route: short prose plus a chart available in the response
+    if route == "viz" and state.get("chart_spec"):
+        return {
+            "answer": (
+                f"Here is the chart for your question. "
+                f"It is built from {row_count} rows aggregated by SQL "
+                f"(columns: {cols})."
+            )
+        }
 
     if row_count == 0:
         return {"answer": "The query returned no rows."}
@@ -212,3 +237,43 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
             f"{row_count} rows returned. First 10:\n{header}\n{body}"
         )
     }
+
+
+def make_chart_node(state: AgentState) -> dict[str, Any]:
+    """Build a Plotly chart spec from the executed SQL result.
+
+    Only invoked on the `viz` route after a successful SQL execution.
+    Failures here fall back to a textual answer (no chart, but no crash).
+    """
+    from app.tools.viz import build_plotly_spec, choose_chart
+
+    rows = state.get("rows", [])
+    cols = state.get("columns", [])
+    if not rows or not cols:
+        return {"chart_spec": {}}
+
+    try:
+        spec = choose_chart(
+            question=state["question"],
+            columns=cols,
+            sample_rows=rows,
+        )
+        plotly_dict = build_plotly_spec(spec, rows)
+    except Exception as e:  # noqa: BLE001 — log and degrade gracefully
+        logger.warning("Chart build failed: %s", e)
+        return {"chart_spec": {}, "error": f"chart build failed: {e}"}
+
+    return {"chart_spec": plotly_dict}
+
+
+def clarify_node(state: AgentState) -> dict[str, Any]:
+    """No-op pass-through; clarifying text already in route_reason.
+
+    Exists as a distinct node so traces clearly show why no SQL ran.
+    """
+    return {}
+
+
+def refuse_node(state: AgentState) -> dict[str, Any]:
+    """No-op pass-through; refusal text already in route_reason."""
+    return {}

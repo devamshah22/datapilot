@@ -58,9 +58,12 @@ def ask(req: AskRequest) -> AskResponse:
     return AskResponse(
         question=req.question,
         answer=final.get("answer", ""),
+        route=final.get("route"),
+        route_reason=final.get("route_reason"),
         sql=final.get("sql"),
         columns=final.get("columns", []),
         rows=final.get("rows", []),
         row_count=final.get("row_count", 0),
+        chart_spec=final.get("chart_spec") or None,
         error=final.get("error") or None,
     )

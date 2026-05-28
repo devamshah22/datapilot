@@ -1,36 +1,78 @@
-"""LangGraph state machine for the v1 agent.
+"""LangGraph state machine for the agent.
 
-v1 graph:
-    write_sql -> execute_sql -> compose_answer -> END
+Graph (after session 3):
 
-No conditional edges, no loops, no retries. The simplest agent that can
-end-to-end answer a question with SQL.
+                                 ┌─ clarify ─┐
+                                 │           │
+    START → router ───────────── ┼─ refuse ──┼──→ compose_answer → END
+                                 │           │
+                                 └─ write_sql → execute_sql ─┐
+                                                  │          │
+                                                  ↓          │
+                                              make_chart ────┘
+                                              (only if route=viz)
 
-Future versions will add:
-    - router node (SQL vs Python vs Viz vs Clarify) BEFORE write_sql
-    - validator node AFTER execute_sql
-    - conditional edge from validator back to write_sql for self-correction
+The router decides path; compose_answer normalizes output across all
+paths so the API response shape stays stable.
 """
 from __future__ import annotations
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.nodes import compose_answer_node, execute_sql_node, write_sql_node
+from app.agent.nodes import (
+    clarify_node,
+    compose_answer_node,
+    execute_sql_node,
+    make_chart_node,
+    refuse_node,
+    write_sql_node,
+)
+from app.agent.router import decide_after_router, decide_after_sql, router_node
 from app.agent.state import AgentState
 from app.tools.sql import get_sql_tool
 
 
 def build_graph():
     builder = StateGraph(AgentState)
+    builder.add_node("router", router_node)
     builder.add_node("write_sql", write_sql_node)
     builder.add_node("execute_sql", execute_sql_node)
+    builder.add_node("make_chart", make_chart_node)
+    builder.add_node("clarify_node", clarify_node)
+    builder.add_node("refuse_node", refuse_node)
     builder.add_node("compose_answer", compose_answer_node)
 
-    builder.add_edge(START, "write_sql")
-    builder.add_edge("write_sql", "execute_sql")
-    builder.add_edge("execute_sql", "compose_answer")
-    builder.add_edge("compose_answer", END)
+    builder.add_edge(START, "router")
 
+    # After router: branch on chosen route
+    builder.add_conditional_edges(
+        "router",
+        decide_after_router,
+        {
+            "sql": "write_sql",
+            "viz": "write_sql",
+            "clarify": "clarify_node",
+            "refuse": "refuse_node",
+        },
+    )
+
+    # SQL path: write -> execute -> (maybe make_chart) -> compose
+    builder.add_edge("write_sql", "execute_sql")
+    builder.add_conditional_edges(
+        "execute_sql",
+        decide_after_sql,
+        {
+            "make_chart": "make_chart",
+            "compose_answer": "compose_answer",
+        },
+    )
+    builder.add_edge("make_chart", "compose_answer")
+
+    # Clarify / refuse paths bypass SQL entirely
+    builder.add_edge("clarify_node", "compose_answer")
+    builder.add_edge("refuse_node", "compose_answer")
+
+    builder.add_edge("compose_answer", END)
     return builder.compile()
 
 
@@ -40,10 +82,10 @@ def run_agent(question: str) -> AgentState:
     schema = get_sql_tool().schema_summary()
     initial: AgentState = {"question": question, "schema": schema}
     final = graph.invoke(initial)
-    return final  # LangGraph returns the merged final state dict
+    return final
 
 
-# Cache the compiled graph so we don't rebuild on every request
+# Cache the compiled graph so we don't rebuild on every request.
 _graph = None
 
 
