@@ -29,10 +29,11 @@ class AgentState(TypedDict, total=False):
     columns: list[str]
     rows: list[dict[str, Any]]
     row_count: int
-    error: str
+    error: str  # SQL execution failed
 
     # Filled by make_chart node (only on viz route)
     chart_spec: dict[str, Any]
+    chart_error: str  # chart build failed (SQL still succeeded)
 
     # Final user-facing answer composed at the end of the graph
     answer: str

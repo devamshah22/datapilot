@@ -192,7 +192,7 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     if route == "refuse":
         return {"answer": state.get("route_reason", "I can't answer that with this data.")}
 
-    # SQL or viz with an execution error
+    # SQL or viz with an SQL execution error
     if state.get("error"):
         return {
             "answer": (
@@ -204,14 +204,27 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     rows = state.get("rows", [])
     cols = state.get("columns", [])
     row_count = state.get("row_count", 0)
+    chart_error = state.get("chart_error")
 
-    # Viz route: short prose plus a chart available in the response
+    # Viz route, SQL succeeded, chart succeeded
     if route == "viz" and state.get("chart_spec"):
         return {
             "answer": (
                 f"Here is the chart for your question. "
                 f"It is built from {row_count} rows aggregated by SQL "
                 f"(columns: {cols})."
+            )
+        }
+
+    # Viz route, SQL succeeded but chart-building failed
+    # (e.g., LLM rate limit during chart_spec call)
+    # Show the data anyway and explain the chart problem honestly.
+    if route == "viz" and chart_error:
+        preview = _render_table_preview(rows, cols, row_count)
+        return {
+            "answer": (
+                f"I aggregated the data but couldn't build the chart: {chart_error}\n\n"
+                f"Here are the results as a table:\n{preview}"
             )
         }
 
@@ -223,27 +236,36 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
         value = rows[0][cols[0]]
         return {"answer": f"{cols[0]}: {_fmt_cell(value)}"}
 
-    # Small table — render as compact text
-    if row_count <= 10:
-        header = " | ".join(cols)
-        body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows)
-        return {"answer": f"{header}\n{body}"}
+    return {"answer": _render_table_preview(rows, cols, row_count)}
 
-    # Larger result — show first 10 and total count
+
+def _render_table_preview(
+    rows: list[dict[str, Any]],
+    cols: list[str],
+    row_count: int,
+    max_rows: int = 10,
+) -> str:
+    """Compact text rendering of a tabular result.
+
+    Used both for normal SQL answers and as a fallback when chart-building
+    fails on the viz path.
+    """
+    if not rows:
+        return "(no rows)"
     header = " | ".join(cols)
-    body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows[:10])
-    return {
-        "answer": (
-            f"{row_count} rows returned. First 10:\n{header}\n{body}"
-        )
-    }
+    if row_count <= max_rows:
+        body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows)
+        return f"{header}\n{body}"
+    body = "\n".join(" | ".join(_fmt_cell(r[c]) for c in cols) for r in rows[:max_rows])
+    return f"{row_count} rows returned. First {max_rows}:\n{header}\n{body}"
 
 
 def make_chart_node(state: AgentState) -> dict[str, Any]:
     """Build a Plotly chart spec from the executed SQL result.
 
     Only invoked on the `viz` route after a successful SQL execution.
-    Failures here fall back to a textual answer (no chart, but no crash).
+    Failures here record a `chart_error` (NOT `error`, which means SQL
+    failed) so the data can still be returned to the user with a note.
     """
     from app.tools.viz import build_plotly_spec, choose_chart
 
@@ -261,7 +283,7 @@ def make_chart_node(state: AgentState) -> dict[str, Any]:
         plotly_dict = build_plotly_spec(spec, rows)
     except Exception as e:  # noqa: BLE001 — log and degrade gracefully
         logger.warning("Chart build failed: %s", e)
-        return {"chart_spec": {}, "error": f"chart build failed: {e}"}
+        return {"chart_spec": {}, "chart_error": str(e)}
 
     return {"chart_spec": plotly_dict}
 

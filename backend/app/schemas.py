@@ -29,6 +29,7 @@ class AskResponse(BaseModel):
 
     # Viz path
     chart_spec: dict[str, Any] | None = None
+    chart_error: str | None = None
 
     # Failure mode
     error: str | None = None
