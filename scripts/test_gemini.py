@@ -1,4 +1,4 @@
-"""Quick connectivity test for Gemini API.
+r"""Quick connectivity test for Gemini API.
 
 Run from project root:
     .\.venv\Scripts\python.exe scripts\test_gemini.py

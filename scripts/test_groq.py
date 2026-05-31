@@ -1,4 +1,4 @@
-"""Quick connectivity test for Groq API.
+r"""Quick connectivity test for Groq API.
 
 Run from project root:
     .\.venv\Scripts\python.exe scripts\test_groq.py

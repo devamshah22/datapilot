@@ -1,4 +1,4 @@
-"""Quick CLI for asking the agent a single question.
+r"""Quick CLI for asking the agent a single question.
 
 Usage from project root:
     .\.venv\Scripts\python.exe scripts\ask.py "How many orders are there in total?"

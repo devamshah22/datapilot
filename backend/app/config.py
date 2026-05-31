@@ -21,10 +21,17 @@ class Settings(BaseSettings):
     )
 
     # --- LLM ---
-    gemini_api_key: str = Field(..., alias="GEMINI_API_KEY")
+    # Which provider to use. "groq" is recommended for the free tier
+    # (much higher daily quota than Gemini free tier).
+    llm_provider: str = Field(default="groq", alias="LLM_PROVIDER")
+
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
-    primary_model: str = Field(default="gemini-2.5-flash", alias="PRIMARY_MODEL")
-    validator_model: str = Field(default="gemini-2.5-flash", alias="VALIDATOR_MODEL")
+
+    # Per-provider model names
+    primary_model: str = Field(default="gemini-2.0-flash", alias="PRIMARY_MODEL")
+    validator_model: str = Field(default="gemini-2.0-flash", alias="VALIDATOR_MODEL")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
 
     # --- Data ---
     dataset_path: Path = Field(

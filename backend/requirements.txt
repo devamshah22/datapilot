@@ -11,6 +11,7 @@ google-generativeai==0.8.3
 langgraph==0.2.60
 langchain-core==0.3.28
 langchain-google-genai==2.0.7
+langchain-groq==0.2.2
 
 # Data
 duckdb==1.1.3

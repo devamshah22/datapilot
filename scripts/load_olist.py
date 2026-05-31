@@ -1,4 +1,4 @@
-"""Smoke test for the Olist dataset.
+r"""Smoke test for the Olist dataset.
 
 What this does:
   1. Loads each Olist CSV into DuckDB and reports row counts.

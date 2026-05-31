@@ -21,10 +21,9 @@ from typing import Any
 
 import pandas as pd
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.state import AgentState
-from app.config import settings
+from app.llm import get_chat_llm
 from app.tools.sql import get_sql_tool
 
 logger = logging.getLogger(__name__)
@@ -95,17 +94,13 @@ def _fmt_cell(value: Any) -> str:
 
 
 # --- LLM client (singleton) -------------------------------------------------
-_llm: ChatGoogleGenerativeAI | None = None
+_llm: Any = None
 
 
-def _get_llm() -> ChatGoogleGenerativeAI:
+def _get_llm():
     global _llm
     if _llm is None:
-        _llm = ChatGoogleGenerativeAI(
-            model=settings.primary_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=0.0,
-        )
+        _llm = get_chat_llm()
     return _llm
 
 
@@ -120,6 +115,10 @@ Rules:
 - For text matching on categorical columns, prefer = over LIKE unless the
   question implies fuzzy match.
 - For "top N" questions, include ORDER BY ... DESC and LIMIT N.
+- For TIME-SERIES questions (anything per day/week/month/year), produce a
+  SINGLE date or timestamp column using DATE_TRUNC('month', ts) or
+  STRFTIME('%Y-%m', ts). Do NOT split year and month into separate columns —
+  that makes downstream charts collapse points across years.
 - Never write INSERT, UPDATE, DELETE, CREATE, DROP, or ALTER statements.
 """
 

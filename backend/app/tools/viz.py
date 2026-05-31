@@ -14,10 +14,9 @@ import logging
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
-from app.config import settings
+from app.llm import get_structured_llm
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +62,7 @@ _chart_llm: Any = None
 def _get_chart_llm():
     global _chart_llm
     if _chart_llm is None:
-        base = ChatGoogleGenerativeAI(
-            model=settings.primary_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=0.0,
-        )
-        _chart_llm = base.with_structured_output(ChartSpec)
+        _chart_llm = get_structured_llm(ChartSpec)
     return _chart_llm
 
 

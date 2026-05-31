@@ -9,11 +9,10 @@ import logging
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 from app.agent.state import AgentState
-from app.config import settings
+from app.llm import get_structured_llm
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +59,14 @@ Return your decision via the structured schema. The `reason` field:
 """
 
 
-_router_llm: Any = None  # ChatGoogleGenerativeAI is hard to type without runnables
+_router_llm: Any = None
 
 
 def _get_router_llm():
     global _router_llm
     if _router_llm is None:
-        base = ChatGoogleGenerativeAI(
-            model=settings.primary_model,
-            google_api_key=settings.gemini_api_key,
-            temperature=0.0,
-        )
         # with_structured_output guarantees parsed Pydantic output
-        _router_llm = base.with_structured_output(RouteDecision)
+        _router_llm = get_structured_llm(RouteDecision)
     return _router_llm
 
 
