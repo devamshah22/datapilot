@@ -53,7 +53,10 @@ Guidelines:
 - Two numeric columns to study their relationship → "scatter"
 - Small set of category shares (≤ 8 categories, parts-of-a-whole) → "pie"
 
-Pick column names EXACTLY as shown. Title and labels should be concise."""
+Pick column names EXACTLY as shown. Title and labels should be concise.
+
+LANGUAGE: Always write `title`, `x_label`, and `y_label` in English,
+regardless of the user's input language."""
 
 
 _chart_llm: Any = None

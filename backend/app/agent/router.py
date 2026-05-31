@@ -56,6 +56,10 @@ Return your decision via the structured schema. The `reason` field:
 - For sql/viz: ONE short sentence explaining why this path fits.
 - For clarify: the actual clarifying question to put in front of the user.
 - For refuse: the actual explanation to put in front of the user.
+
+LANGUAGE: Always write the `reason` field in English, even if the user's
+question is in another language. Output is consumed by data teams who work
+in English.
 """
 
 
