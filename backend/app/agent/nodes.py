@@ -219,6 +219,11 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     Branches on `state["route"]` so each path gets an appropriate phrasing.
     Rule-based for cost/latency reasons; the LLM has already done its work
     upstream.
+
+    The user-facing answer text intentionally does NOT mention how many
+    self-correction retries happened. End users care about the answer, not
+    the agent's internal reliability process. Retry data is still surfaced
+    in the API response (`previous_attempts`, `retry_count`) for devs.
     """
     route = state.get("route", "sql")
 
@@ -229,41 +234,26 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     if route == "refuse":
         return {"answer": state.get("route_reason", "I can't answer that with this data.")}
 
-    # Number of self-correction retries that actually happened. Used to
-    # add a transparent footnote so users (and recruiters reviewing demos)
-    # see when the agent fixed itself.
-    retries = len(state.get("previous_attempts", []))
-    correction_note = ""
-    if retries > 0:
-        plural = "s" if retries > 1 else ""
-        correction_note = f"\n\n_(answered after {retries} self-correction{plural})_"
-
-    # SQL or viz with an SQL execution error after retries exhausted
+    # SQL or viz with an SQL execution error after retries exhausted.
+    # We still tell the user the agent failed, but we don't quote the raw
+    # SQL or count the retries — that's debug info, surfaced via the API
+    # `previous_attempts` field instead.
     if state.get("error"):
-        attempts = state.get("previous_attempts", [])
-        history = (
-            "\n\n".join(
-                f"Attempt {i + 1} SQL:\n{a['sql']}\nError: {a['error']}"
-                for i, a in enumerate(attempts)
-            )
-            if attempts
-            else f"SQL:\n{state.get('sql', '')}"
-        )
         return {
             "answer": (
-                f"I tried {max(retries, 1)} time(s) to answer your question and "
-                f"every attempt failed. Last error: {state['error']}\n\n"
-                f"{history}"
+                "I couldn't produce a working query for that question. "
+                "Try rephrasing, or ask about a metric or column listed in the schema."
             )
         }
 
-    # Validation failure with retries exhausted
+    # Validation failure with retries exhausted. Same principle: tell the
+    # user something went wrong without exposing the agent's process.
     if state.get("validation_failure"):
         return {
             "answer": (
-                f"I produced a query that ran without error, but the result "
-                f"looks wrong: {state['validation_failure']}\n\n"
-                f"Final SQL:\n{state.get('sql', '')}"
+                "I produced a query but the result didn't look right. "
+                "Try rephrasing your question — for example, be more specific "
+                "about the time range, filter, or metric you mean."
             )
         }
 
@@ -278,7 +268,7 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
             "answer": (
                 f"Here is the chart for your question. "
                 f"It is built from {row_count} rows aggregated by SQL "
-                f"(columns: {cols}).{correction_note}"
+                f"(columns: {cols})."
             )
         }
 
@@ -290,19 +280,19 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
         return {
             "answer": (
                 f"I aggregated the data but couldn't build the chart: {chart_error}\n\n"
-                f"Here are the results as a table:\n{preview}{correction_note}"
+                f"Here are the results as a table:\n{preview}"
             )
         }
 
     if row_count == 0:
-        return {"answer": f"The query returned no rows.{correction_note}"}
+        return {"answer": "The query returned no rows."}
 
     if row_count == 1 and len(cols) == 1:
         # Single scalar — most common for COUNT/SUM/AVG questions
         value = rows[0][cols[0]]
-        return {"answer": f"{cols[0]}: {_fmt_cell(value)}{correction_note}"}
+        return {"answer": f"{cols[0]}: {_fmt_cell(value)}"}
 
-    return {"answer": f"{_render_table_preview(rows, cols, row_count)}{correction_note}"}
+    return {"answer": _render_table_preview(rows, cols, row_count)}
 
 
 def _render_table_preview(

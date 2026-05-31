@@ -27,6 +27,8 @@ def test_refuse_returns_route_reason_text() -> None:
 
 
 def test_sql_error_says_sql_failed() -> None:
+    """When all retries are exhausted, user gets a clean message — NOT raw
+    SQL or attempt counts. The retry data lives in the API response."""
     state = {
         "route": "sql",
         "error": "syntax error near 'FROM'",
@@ -34,10 +36,12 @@ def test_sql_error_says_sql_failed() -> None:
         "previous_attempts": [{"sql": "SELECT FROM orders", "error": "syntax error near 'FROM'"}],
     }
     out = compose_answer_node(state)
-    # New phrasing: tells user how many attempts and the last error verbatim
-    assert "tried" in out["answer"].lower()
-    assert "syntax error" in out["answer"]
-    assert "SELECT FROM orders" in out["answer"]
+    # User-facing answer should be helpful but not leak internals.
+    assert "couldn't produce" in out["answer"].lower()
+    # No raw SQL, no attempt count, no error trace.
+    assert "syntax error" not in out["answer"]
+    assert "SELECT FROM orders" not in out["answer"]
+    assert "attempt" not in out["answer"].lower()
 
 
 def test_chart_error_with_successful_sql_shows_data_not_sql_failure() -> None:
@@ -96,7 +100,10 @@ def test_sql_empty_result() -> None:
     assert out["answer"] == "The query returned no rows."
 
 
-def test_successful_answer_after_one_correction_includes_footnote() -> None:
+def test_successful_answer_after_retries_does_not_mention_them() -> None:
+    """User explicitly should NOT know how many tries the agent took.
+    The retry count is debug data exposed via the API response, not the
+    user-facing `answer` text."""
     state = {
         "route": "sql",
         "columns": ["category"],
@@ -104,27 +111,14 @@ def test_successful_answer_after_one_correction_includes_footnote() -> None:
         "row_count": 1,
         "previous_attempts": [
             {"sql": "SELECT bad_col FROM orders", "error": "Binder Error"},
+            {"sql": "SELECT other_bad FROM orders", "error": "Binder Error"},
         ],
     }
     out = compose_answer_node(state)
     assert "health_beauty" in out["answer"]
-    assert "self-correction" in out["answer"].lower()
-    assert "1" in out["answer"]
-
-
-def test_successful_answer_after_two_corrections_says_corrections_plural() -> None:
-    state = {
-        "route": "sql",
-        "columns": ["n"],
-        "rows": [{"n": 5}],
-        "row_count": 1,
-        "previous_attempts": [
-            {"sql": "x", "error": "e"},
-            {"sql": "y", "error": "e"},
-        ],
-    }
-    out = compose_answer_node(state)
-    assert "self-corrections" in out["answer"].lower()
+    assert "self-correction" not in out["answer"].lower()
+    assert "attempt" not in out["answer"].lower()
+    assert "retr" not in out["answer"].lower()  # catches retry, retried, retries
 
 
 def test_no_corrections_no_footnote() -> None:
@@ -136,4 +130,6 @@ def test_no_corrections_no_footnote() -> None:
         "previous_attempts": [],
     }
     out = compose_answer_node(state)
+    # Clean answer either way
     assert "self-correction" not in out["answer"].lower()
+    assert out["answer"] == "n: 99,441"
