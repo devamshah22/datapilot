@@ -31,5 +31,10 @@ class AskResponse(BaseModel):
     chart_spec: dict[str, Any] | None = None
     chart_error: str | None = None
 
+    # Self-correction transparency
+    retry_count: int = 0
+    previous_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    validation_failure: str | None = None
+
     # Failure mode
     error: str | None = None

@@ -11,6 +11,11 @@ from typing import Any, Literal, TypedDict
 Route = Literal["sql", "viz", "clarify", "refuse"]
 
 
+class AttemptRecord(TypedDict):
+    sql: str
+    error: str  # empty string when the attempt succeeded
+
+
 class AgentState(TypedDict, total=False):
     # Input
     question: str
@@ -22,14 +27,19 @@ class AgentState(TypedDict, total=False):
     route: Route
     route_reason: str
 
-    # Filled by write_sql node (only on sql / viz routes)
+    # Filled / overwritten by write_sql each attempt
     sql: str
 
-    # Filled by execute_sql node (only on sql / viz routes)
+    # Filled / overwritten by execute_sql each attempt
     columns: list[str]
     rows: list[dict[str, Any]]
     row_count: int
-    error: str  # SQL execution failed
+    error: str  # SQL execution failed on the latest attempt
+
+    # Self-correction tracking (week 4)
+    retry_count: int
+    previous_attempts: list[AttemptRecord]
+    validation_failure: str  # set by validator when result is suspicious
 
     # Filled by make_chart node (only on viz route)
     chart_spec: dict[str, Any]

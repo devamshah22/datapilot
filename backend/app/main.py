@@ -66,5 +66,8 @@ def ask(req: AskRequest) -> AskResponse:
         row_count=final.get("row_count", 0),
         chart_spec=final.get("chart_spec") or None,
         chart_error=final.get("chart_error") or None,
+        retry_count=len(final.get("previous_attempts", [])),
+        previous_attempts=final.get("previous_attempts", []),
+        validation_failure=final.get("validation_failure") or None,
         error=final.get("error") or None,
     )

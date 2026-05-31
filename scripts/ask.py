@@ -31,9 +31,17 @@ def main() -> int:
     print(f"Q: {question}")
     print("-" * 70)
     print(f"Route: {final.get('route', '?')} -- {final.get('route_reason', '')}")
+
+    attempts = final.get("previous_attempts", [])
+    if attempts:
+        print("-" * 70)
+        print(f"Self-corrections: {len(attempts)} retry(ies) before final answer")
+        for i, a in enumerate(attempts, 1):
+            print(f"  attempt {i} error: {a['error'][:120]}")
+
     if final.get("sql"):
         print("-" * 70)
-        print(f"SQL:\n{final['sql']}")
+        print(f"Final SQL:\n{final['sql']}")
     print("-" * 70)
     if final.get("error"):
         print(f"ERROR: {final['error']}")

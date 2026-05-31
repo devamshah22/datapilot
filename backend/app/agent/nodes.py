@@ -143,20 +143,43 @@ def _strip_fences(text: str) -> str:
 def write_sql_node(state: AgentState) -> dict[str, Any]:
     question = state["question"]
     schema = state["schema"]
+    previous_attempts = state.get("previous_attempts", [])
 
     llm = _get_llm()
-    prompt = (
-        f"Schema:\n{schema}\n\n"
-        f"Question: {question}\n\n"
-        "Write the SQL."
-    )
+
+    if previous_attempts:
+        # We're in a self-correction retry. Tell the LLM exactly what
+        # was tried, what went wrong, and instruct it to fix.
+        history = "\n\n".join(
+            f"Attempt {i + 1}:\nSQL:\n{a['sql']}\nError: {a['error']}"
+            for i, a in enumerate(previous_attempts)
+        )
+        prompt = (
+            f"Schema:\n{schema}\n\n"
+            f"Question: {question}\n\n"
+            f"PREVIOUS ATTEMPTS THAT FAILED:\n{history}\n\n"
+            "Write a CORRECTED SQL query that fixes the error(s) above. "
+            "Do not repeat any of the previous queries — diagnose what went "
+            "wrong (wrong column? missing cast? bad filter?) and address it."
+        )
+    else:
+        prompt = (
+            f"Schema:\n{schema}\n\n"
+            f"Question: {question}\n\n"
+            "Write the SQL."
+        )
 
     response = llm.invoke([
         SystemMessage(content=SQL_SYSTEM_PROMPT),
         HumanMessage(content=prompt),
     ])
-    sql = _strip_fences(response.content if isinstance(response.content, str) else str(response.content))
-    logger.info("Generated SQL: %s", sql)
+    sql = _strip_fences(
+        response.content if isinstance(response.content, str) else str(response.content)
+    )
+    logger.info(
+        "Generated SQL (attempt %d): %s",
+        len(previous_attempts) + 1, sql,
+    )
     return {"sql": sql}
 
 
@@ -167,7 +190,16 @@ def execute_sql_node(state: AgentState) -> dict[str, Any]:
 
     if not result.ok:
         logger.warning("SQL execution failed: %s", result.error)
-        return {"error": result.error or "unknown error", "rows": [], "columns": [], "row_count": 0}
+        # Append this failed attempt so a retry has full context.
+        attempts = list(state.get("previous_attempts", []))
+        attempts.append({"sql": sql, "error": result.error or "unknown error"})
+        return {
+            "error": result.error or "unknown error",
+            "rows": [],
+            "columns": [],
+            "row_count": 0,
+            "previous_attempts": attempts,
+        }
 
     df = result.dataframe
     assert df is not None  # narrowed by result.ok
@@ -197,12 +229,41 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     if route == "refuse":
         return {"answer": state.get("route_reason", "I can't answer that with this data.")}
 
-    # SQL or viz with an SQL execution error
+    # Number of self-correction retries that actually happened. Used to
+    # add a transparent footnote so users (and recruiters reviewing demos)
+    # see when the agent fixed itself.
+    retries = len(state.get("previous_attempts", []))
+    correction_note = ""
+    if retries > 0:
+        plural = "s" if retries > 1 else ""
+        correction_note = f"\n\n_(answered after {retries} self-correction{plural})_"
+
+    # SQL or viz with an SQL execution error after retries exhausted
     if state.get("error"):
+        attempts = state.get("previous_attempts", [])
+        history = (
+            "\n\n".join(
+                f"Attempt {i + 1} SQL:\n{a['sql']}\nError: {a['error']}"
+                for i, a in enumerate(attempts)
+            )
+            if attempts
+            else f"SQL:\n{state.get('sql', '')}"
+        )
         return {
             "answer": (
-                f"I tried to answer with SQL but execution failed: {state['error']}\n\n"
-                f"Generated SQL was:\n{state.get('sql', '')}"
+                f"I tried {max(retries, 1)} time(s) to answer your question and "
+                f"every attempt failed. Last error: {state['error']}\n\n"
+                f"{history}"
+            )
+        }
+
+    # Validation failure with retries exhausted
+    if state.get("validation_failure"):
+        return {
+            "answer": (
+                f"I produced a query that ran without error, but the result "
+                f"looks wrong: {state['validation_failure']}\n\n"
+                f"Final SQL:\n{state.get('sql', '')}"
             )
         }
 
@@ -217,7 +278,7 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
             "answer": (
                 f"Here is the chart for your question. "
                 f"It is built from {row_count} rows aggregated by SQL "
-                f"(columns: {cols})."
+                f"(columns: {cols}).{correction_note}"
             )
         }
 
@@ -229,19 +290,19 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
         return {
             "answer": (
                 f"I aggregated the data but couldn't build the chart: {chart_error}\n\n"
-                f"Here are the results as a table:\n{preview}"
+                f"Here are the results as a table:\n{preview}{correction_note}"
             )
         }
 
     if row_count == 0:
-        return {"answer": "The query returned no rows."}
+        return {"answer": f"The query returned no rows.{correction_note}"}
 
     if row_count == 1 and len(cols) == 1:
         # Single scalar — most common for COUNT/SUM/AVG questions
         value = rows[0][cols[0]]
-        return {"answer": f"{cols[0]}: {_fmt_cell(value)}"}
+        return {"answer": f"{cols[0]}: {_fmt_cell(value)}{correction_note}"}
 
-    return {"answer": _render_table_preview(rows, cols, row_count)}
+    return {"answer": f"{_render_table_preview(rows, cols, row_count)}{correction_note}"}
 
 
 def _render_table_preview(
