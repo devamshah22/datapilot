@@ -119,6 +119,12 @@ Rules:
   SINGLE date or timestamp column using DATE_TRUNC('month', ts) or
   STRFTIME('%Y-%m', ts). Do NOT split year and month into separate columns —
   that makes downstream charts collapse points across years.
+- HUMAN-READABLE COLUMNS: When two columns hold the same information,
+  ALWAYS use the English / human-readable one in the SELECT list, NOT the
+  native or coded one. Concrete example for this dataset:
+    BAD:  SELECT product_category_name FROM orders GROUP BY product_category_name
+    GOOD: SELECT product_category_en   FROM orders GROUP BY product_category_en
+  The user does not read Portuguese. Use product_category_en, not product_category_name.
 - Never write INSERT, UPDATE, DELETE, CREATE, DROP, or ALTER statements.
 """
 

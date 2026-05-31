@@ -92,20 +92,26 @@ class SQLTool:
             f"CREATE TABLE {self.table_name} AS "
             f"SELECT * FROM read_csv_auto('{self.csv_path.as_posix()}'{types_clause})"
         )
-        self._schema_cache: str | None = None
+        # Cache: (sample_values) -> rendered schema string
+        self._schema_cache: dict[int, str] = {}
 
-    def schema_summary(self, sample_values: int = 0) -> str:
+    def schema_summary(self, sample_values: int = 2) -> str:
         """Return a compact description of the table for prompting.
+
+        With `sample_values` > 0, each column is annotated with that many
+        distinct example values. This is what lets the agent prefer
+        ``product_category_en`` ("housewares") over ``product_category_name``
+        ("utilidades_domesticas") without us hard-coding a rule per dataset.
 
         Format:
             Table: orders (112650 rows)
             Columns:
-              - order_id: VARCHAR
-              - price: DOUBLE
+              - order_id: VARCHAR (e.g., 'e481f51c...', '53cdb2fc...')
+              - price: DOUBLE (e.g., 29.99, 158.0)
               ...
         """
-        if self._schema_cache is not None:
-            return self._schema_cache
+        if sample_values in self._schema_cache:
+            return self._schema_cache[sample_values]
 
         n_rows = self.con.execute(
             f"SELECT COUNT(*) FROM {self.table_name}"
@@ -115,10 +121,41 @@ class SQLTool:
 
         lines = [f"Table: {self.table_name} ({n_rows:,} rows)", "Columns:"]
         for name, dtype, *_ in cols:
-            lines.append(f"  - {name}: {dtype}")
+            line = f"  - {name}: {dtype}"
+            if sample_values > 0:
+                samples = self._fetch_sample_values(name, sample_values)
+                if samples:
+                    formatted = ", ".join(self._fmt_sample(v) for v in samples)
+                    line += f" (e.g., {formatted})"
+            lines.append(line)
 
-        self._schema_cache = "\n".join(lines)
-        return self._schema_cache
+        result = "\n".join(lines)
+        self._schema_cache[sample_values] = result
+        return result
+
+    def _fetch_sample_values(self, column: str, n: int) -> list[Any]:
+        """Return up to ``n`` distinct non-null sample values for a column."""
+        # Quote the column name to be safe with reserved words / casing.
+        try:
+            rows = self.con.execute(
+                f"SELECT DISTINCT \"{column}\" FROM {self.table_name} "
+                f"WHERE \"{column}\" IS NOT NULL "
+                f"LIMIT {n}"
+            ).fetchall()
+        except Exception:
+            return []
+        return [r[0] for r in rows]
+
+    @staticmethod
+    def _fmt_sample(value: Any) -> str:
+        """Render a sample value compactly for the schema prompt."""
+        if isinstance(value, str):
+            # Truncate long string values (UUIDs, free text) so the prompt
+            # stays small and readable.
+            if len(value) > 24:
+                return f"'{value[:21]}...'"
+            return f"'{value}'"
+        return str(value)
 
     def execute(self, sql: str, max_rows: int = 1000) -> SQLResult:
         """Run a SELECT and return at most `max_rows` rows.

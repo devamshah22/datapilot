@@ -49,3 +49,30 @@ def test_returns_error_on_bad_sql(sql_tool: SQLTool) -> None:
     result = sql_tool.execute("SELECT FROM orders")  # syntax error
     assert not result.ok
     assert result.error
+
+
+def test_schema_summary_includes_sample_values_by_default(sql_tool: SQLTool) -> None:
+    """Sample values let the model judge which column is human-readable
+    (e.g., product_category_en vs product_category_name) without us
+    hard-coding rules per dataset."""
+    summary = sql_tool.schema_summary()
+    assert "Table: orders" in summary
+    assert "Columns:" in summary
+    # Every column should have an "(e.g., ...)" annotation
+    for line in summary.splitlines():
+        if line.startswith("  - "):
+            assert "(e.g.," in line, f"missing sample on: {line}"
+
+
+def test_schema_summary_omits_samples_when_requested(sql_tool: SQLTool) -> None:
+    summary = sql_tool.schema_summary(sample_values=0)
+    assert "(e.g.," not in summary
+
+
+def test_schema_summary_caches_per_sample_count(sql_tool: SQLTool) -> None:
+    """Different sample-count requests must not collide in the cache."""
+    a = sql_tool.schema_summary(sample_values=0)
+    b = sql_tool.schema_summary(sample_values=2)
+    assert a != b
+    assert sql_tool.schema_summary(sample_values=0) == a  # idempotent
+    assert sql_tool.schema_summary(sample_values=2) == b
