@@ -42,15 +42,21 @@ See [docs/architecture.md](docs/architecture.md) for the full design (coming soo
 
 ## Tech stack
 
-| Layer        | Choice                              | Why                                    |
-| ------------ | ----------------------------------- | -------------------------------------- |
-| LLM          | Google Gemini 2.5 Flash (free tier) | Strong tool-calling, $0 dev cost       |
-| Agent        | LangGraph                           | State machines map cleanly to design   |
-| SQL engine   | DuckDB                              | Runs SQL on CSVs in-process, fast      |
-| Sandbox exec | E2B (planned)                       | Isolated Python execution              |
-| Charts       | Plotly                              | LLM-friendly JSON spec, web-renderable |
-| Backend      | FastAPI                             | Same language as the agent             |
-| Frontend     | Next.js + shadcn/ui                 | Professional polish with low effort    |
+| Layer        | Choice                                        | Why                                                            |
+| ------------ | --------------------------------------------- | -------------------------------------------------------------- |
+| LLM          | Groq (default) / Gemini (alt), via env var    | Pluggable provider. Groq's free tier is generous and fast.     |
+| Agent        | LangGraph                                     | State machines map cleanly to the routing + retry design       |
+| SQL engine   | DuckDB                                        | Runs SQL on CSVs in-process, fast, no setup                    |
+| Sandbox exec | E2B (planned)                                 | Isolated Python execution                                      |
+| Charts       | Plotly                                        | LLM-friendly JSON spec, web-renderable                         |
+| Backend      | FastAPI                                       | Same language as the agent                                     |
+| Frontend     | Next.js + shadcn/ui (planned)                 | Professional polish with low effort                            |
+
+## Behavior notes
+
+- **Input language:** any. The agent understands questions in any major language (English, Portuguese, Spanish, Hindi, French, etc.).
+- **Output language:** always English. Output is consumed by data teams that work in English; consistent output beats inconsistent localization.
+- **LLM provider:** swap with one env var (`LLM_PROVIDER=groq` or `gemini`). All call sites use a single factory; provider-specific imports are quarantined to `backend/app/llm.py`.
 
 ## Repository layout
 
@@ -89,7 +95,8 @@ cd datapilot
 
 # 2. Set up env
 copy .env.example .env
-# Edit .env and add your GEMINI_API_KEY (free at https://aistudio.google.com)
+# Edit .env. Default provider is Groq (free tier, https://console.groq.com).
+# Optionally also set GEMINI_API_KEY if you want to switch via LLM_PROVIDER=gemini.
 
 # 3. Backend
 python -m venv .venv
