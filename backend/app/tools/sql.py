@@ -8,9 +8,16 @@ A thin wrapper around an in-memory DuckDB connection that:
 We deliberately keep the table name configurable so we can change the
 "shape" presented to the agent (e.g., switch from flat to multi-table)
 without editing the agent code.
+
+Safety:
+  - SELECT/WITH only — DDL and DML are rejected at the wrapper level.
+  - In-memory database, no persistence.
+  - Per-query timeout via DuckDB's thread-safe ``connection.interrupt()``.
+  - Result row cap.
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -157,10 +164,17 @@ class SQLTool:
             return f"'{value}'"
         return str(value)
 
-    def execute(self, sql: str, max_rows: int = 1000) -> SQLResult:
-        """Run a SELECT and return at most `max_rows` rows.
+    def execute(
+        self,
+        sql: str,
+        max_rows: int = 1000,
+        timeout: float | None = None,
+    ) -> SQLResult:
+        """Run a SELECT and return at most ``max_rows`` rows.
 
         Mutating statements are rejected (this is a read-only analytical tool).
+        Pathological queries are killed via ``connection.interrupt()`` after
+        ``timeout`` seconds (defaults to ``settings.sql_timeout_seconds``).
         """
         sql_stripped = sql.strip().rstrip(";").strip()
         first_token = sql_stripped.split(None, 1)[0].lower() if sql_stripped else ""
@@ -173,10 +187,20 @@ class SQLTool:
                 ),
             )
 
+        timeout_s = timeout if timeout is not None else settings.sql_timeout_seconds
+        timer = threading.Timer(timeout_s, self.con.interrupt)
+        timer.start()
         try:
             df = self.con.execute(sql_stripped).fetch_df()
+        except duckdb.duckdb.InterruptException:
+            return SQLResult(
+                sql=sql,
+                error=f"Query exceeded {timeout_s:.0f}s timeout and was cancelled.",
+            )
         except Exception as e:  # noqa: BLE001 — surfacing the message to the agent
             return SQLResult(sql=sql, error=f"{type(e).__name__}: {e}")
+        finally:
+            timer.cancel()
 
         truncated = False
         total_rows = len(df)

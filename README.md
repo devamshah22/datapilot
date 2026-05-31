@@ -58,6 +58,20 @@ See [docs/architecture.md](docs/architecture.md) for the full design (coming soo
 - **Output language:** always English. Output is consumed by data teams that work in English; consistent output beats inconsistent localization.
 - **LLM provider:** swap with one env var (`LLM_PROVIDER=groq` or `gemini`). All call sites use a single factory; provider-specific imports are quarantined to `backend/app/llm.py`.
 
+## Safety
+
+DataPilot is a public-facing analytical service. Defense is structural, not textual.
+
+- **SELECT-only SQL** — the SQL tool rejects any statement whose first token isn't `SELECT` or `WITH`. DROP/DELETE/UPDATE/etc. cannot reach the database.
+- **In-memory database** — DuckDB runs with no filesystem persistence; restart wipes everything.
+- **Per-query timeout** — pathological SQL (`SELECT * FROM range(10^12)`) is killed via `connection.interrupt()`.
+- **Per-IP rate limits** — slowapi enforces `10/min` on `/ask` and `60/min` elsewhere by default.
+- **CORS allow-list** — configurable via `CORS_ALLOWED_ORIGINS`.
+- **Bounded result size** — at most 1000 rows are returned per query.
+- **Bounded input size** — questions are capped at 2000 characters by Pydantic.
+
+For the full threat model, deliberate non-decisions, and the pre-deployment checklist, see [docs/security.md](docs/security.md).
+
 ## Repository layout
 
 ```

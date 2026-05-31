@@ -76,3 +76,13 @@ def test_schema_summary_caches_per_sample_count(sql_tool: SQLTool) -> None:
     assert a != b
     assert sql_tool.schema_summary(sample_values=0) == a  # idempotent
     assert sql_tool.schema_summary(sample_values=2) == b
+
+
+def test_query_timeout_cancels_pathological_query(sql_tool: SQLTool) -> None:
+    """A query that would take far longer than the timeout must be cancelled
+    and surface a clean timeout error rather than hanging indefinitely."""
+    # generate_series of 10 billion rows would never finish; interrupted fast
+    huge = "SELECT COUNT(*) FROM range(0, 10000000000)"
+    result = sql_tool.execute(huge, timeout=1.0)
+    assert not result.ok
+    assert "timeout" in (result.error or "").lower()

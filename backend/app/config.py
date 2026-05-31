@@ -44,5 +44,19 @@ class Settings(BaseSettings):
     max_agent_retries: int = Field(default=3, alias="MAX_AGENT_RETRIES")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # --- Safety limits ---
+    sql_timeout_seconds: float = Field(default=10.0, alias="SQL_TIMEOUT_SECONDS")
+    rate_limit_ask: str = Field(default="10/minute", alias="RATE_LIMIT_ASK")
+    rate_limit_default: str = Field(default="60/minute", alias="RATE_LIMIT_DEFAULT")
+    cors_allowed_origins: str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS_ALLOWED_ORIGINS into a list (comma-separated, or single '*')."""
+        raw = self.cors_allowed_origins.strip()
+        if raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
 
 settings = Settings()  # singleton; raises at import time if required env is missing
