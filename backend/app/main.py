@@ -11,11 +11,9 @@ Safety:
     - SQL execution has a hard timeout (see tools/sql.py)
     - Mutating SQL is rejected at the tool layer
 """
-from __future__ import annotations
-
 import logging
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -89,7 +87,7 @@ def schema(request: Request) -> dict[str, str]:
 
 @app.post("/ask", response_model=AskResponse)
 @limiter.limit(settings.rate_limit_ask)
-def ask(request: Request, req: AskRequest) -> AskResponse:
+def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
     try:
         final = run_agent(req.question)
     except Exception as e:  # noqa: BLE001
