@@ -57,6 +57,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design (coming soo
 - **Input language:** any. The agent understands questions in any major language (English, Portuguese, Spanish, Hindi, French, etc.).
 - **Output language:** always English. Output is consumed by data teams that work in English; consistent output beats inconsistent localization.
 - **LLM provider:** swap with one env var (`LLM_PROVIDER=groq` or `gemini`). All call sites use a single factory; provider-specific imports are quarantined to `backend/app/llm.py`.
+- **Session memory:** swap between process-local and persistent Redis with one env var (`SESSION_BACKEND=memory` or `redis`). Redis backend is Upstash-based and survives restarts, supporting follow-ups across days.
 
 ## Safety
 

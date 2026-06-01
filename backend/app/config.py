@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     max_agent_retries: int = Field(default=3, alias="MAX_AGENT_RETRIES")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # --- Session memory ---
+    # "memory" (process-local, lost on restart) or "redis" (persistent via Upstash).
+    session_backend: str = Field(default="memory", alias="SESSION_BACKEND")
+    # Sliding TTL applied on every session write. 7 days by default for Redis;
+    # can be reduced to e.g. 30 minutes for in-memory if you want to mimic
+    # the previous behaviour.
+    session_ttl_seconds: int = Field(default=7 * 24 * 3600, alias="SESSION_TTL_SECONDS")
+    upstash_redis_rest_url: str | None = Field(default=None, alias="UPSTASH_REDIS_REST_URL")
+    upstash_redis_rest_token: str | None = Field(default=None, alias="UPSTASH_REDIS_REST_TOKEN")
+
     # --- Safety limits ---
     sql_timeout_seconds: float = Field(default=10.0, alias="SQL_TIMEOUT_SECONDS")
     rate_limit_ask: str = Field(default="10/minute", alias="RATE_LIMIT_ASK")

@@ -80,7 +80,25 @@ In rough priority order:
 
 1. **Tighten CORS** — replace `*` with the actual frontend origin.
 2. **Authentication** — at minimum, an API key on `/ask` if the service is exposed beyond your local machine.
-3. **Persistent rate-limit backend** — `slowapi` is in-memory; multiple worker processes need Redis-backed limiting.
+3. **Persistent rate-limit backend** — `slowapi` is in-memory; multiple worker processes need Redis-backed limiting (the same Upstash instance used for sessions can host this).
 4. **Structured audit log** — record `(timestamp, ip, question, route, sql)` to a separate log stream.
-5. **Secrets rotation** — Groq / Gemini API keys should rotate periodically. Use a secrets manager, not `.env`, in production.
+5. **Secrets rotation** — Groq / Gemini API keys and Upstash tokens should rotate periodically. Use a secrets manager, not `.env`, in production.
 6. **Output PII scan** — although Olist is anonymized, future datasets may not be. Add a configurable PII scrubber on output.
+
+## Session storage — security-relevant notes
+
+DataPilot supports two session backends, picked by `SESSION_BACKEND`:
+
+| Backend | Persistence | TTL handling | Multi-worker safe |
+| ------- | ----------- | ------------ | ----------------- |
+| `memory` (default in tests) | dies on restart | lazy in-process eviction | no — each worker has its own store |
+| `redis` (Upstash REST) | survives restarts | server-side via `SET ... EX` | yes |
+
+For any deployment with more than one uvicorn worker, use the Redis backend.
+The in-memory option is fine for single-process local dev and unit tests.
+
+The Redis backend stores sessions as JSON under keys like `session:{uuid}`.
+Session data contains the user's question, the SQL the agent generated, and
+a tiny sample of result rows — **no full result sets**. Avoid putting
+sensitive PII into your dataset; if you must, encrypt at rest in Redis or
+host your own Redis instance instead of using a shared cloud service.
