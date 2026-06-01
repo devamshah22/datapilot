@@ -143,6 +143,7 @@ def _strip_fences(text: str) -> str:
 def write_sql_node(state: AgentState) -> dict[str, Any]:
     question = state["question"]
     schema = state["schema"]
+    session_context = state.get("session_context", "")
     previous_attempts = state.get("previous_attempts", [])
 
     llm = _get_llm()
@@ -163,11 +164,23 @@ def write_sql_node(state: AgentState) -> dict[str, Any]:
             "wrong (wrong column? missing cast? bad filter?) and address it."
         )
     else:
-        prompt = (
-            f"Schema:\n{schema}\n\n"
-            f"Question: {question}\n\n"
-            "Write the SQL."
-        )
+        # Normal path. Include session context if this might be a follow-up.
+        if session_context:
+            prompt = (
+                f"Schema:\n{schema}\n\n"
+                f"{session_context}\n\n"
+                f"Current question: {question}\n\n"
+                "Write the SQL. If this question refers to a previous query "
+                "(e.g., 'that', 'now break that down by ...', 'only the last "
+                "6 months'), build on that previous query rather than "
+                "ignoring it."
+            )
+        else:
+            prompt = (
+                f"Schema:\n{schema}\n\n"
+                f"Question: {question}\n\n"
+                "Write the SQL."
+            )
 
     response = llm.invoke([
         SystemMessage(content=SQL_SYSTEM_PROMPT),

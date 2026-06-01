@@ -3,11 +3,15 @@ r"""Quick CLI for asking the agent a single question.
 Usage from project root:
     .\.venv\Scripts\python.exe scripts\ask.py "How many orders are there in total?"
 
-Avoids the overhead of starting a FastAPI server during dev. Useful for
-manual eval-question runs.
+Follow-up across turns (same session):
+    .\.venv\Scripts\python.exe scripts\ask.py --session abc123 "Now break that down by state"
+
+If --session is omitted a new session is created and the id is printed at
+the end so you can pass it on the next call.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -16,19 +20,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.agent.graph import run_agent  # noqa: E402
+from app.agent.graph import record_query_after_run, run_agent  # noqa: E402
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        print('Usage: python -m scripts.ask "your question"')
-        return 1
+    parser = argparse.ArgumentParser(description="Ask the DataPilot agent a question.")
+    parser.add_argument("question", nargs="+", help="The question text.")
+    parser.add_argument(
+        "--session",
+        default=None,
+        help="Existing session id to continue a conversation.",
+    )
+    args = parser.parse_args()
+    question = " ".join(args.question)
 
-    question = " ".join(sys.argv[1:])
-    final = run_agent(question)
+    final, session_id = run_agent(question, session_id=args.session)
+    record_query_after_run(session_id, final)
 
     print("=" * 70)
     print(f"Q: {question}")
+    print(f"Session: {session_id}")
     print("-" * 70)
     print(f"Route: {final.get('route', '?')} -- {final.get('route_reason', '')}")
 
@@ -43,6 +54,7 @@ def main() -> int:
         print("-" * 70)
         print(f"Final SQL:\n{final['sql']}")
     print("-" * 70)
+
     if final.get("error"):
         print(f"ERROR: {final['error']}")
     else:

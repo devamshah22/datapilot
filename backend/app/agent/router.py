@@ -52,6 +52,15 @@ Rules:
 - Use "refuse" for questions like "what will revenue be next quarter?" or "why did churn drop?"
   Causal and predictive questions cannot be answered honestly from data alone.
 
+FOLLOW-UPS: If the prompt includes "PREVIOUS QUERIES IN THIS SESSION", the
+current question may be a follow-up that refines an earlier one (e.g.,
+"now break that down by region", "only the last 6 months", "make it a bar
+chart instead"). In that case:
+  - If the user asked to switch to a chart, route to "viz".
+  - Otherwise route to the same kind of path the previous query used.
+  - Do NOT clarify just because pronouns refer to prior context; resolving
+    "that" against the most recent query is your job.
+
 Return your decision via the structured schema. The `reason` field:
 - For sql/viz: ONE short sentence explaining why this path fits.
 - For clarify: the actual clarifying question to put in front of the user.
@@ -77,11 +86,17 @@ def _get_router_llm():
 def router_node(state: AgentState) -> dict[str, Any]:
     question = state["question"]
     schema = state["schema"]
+    session_context = state.get("session_context", "")
 
     llm = _get_router_llm()
+    user_msg = f"Schema:\n{schema}\n\n"
+    if session_context:
+        user_msg += f"{session_context}\n\n"
+    user_msg += f"Current question: {question}"
+
     decision: RouteDecision = llm.invoke([
         SystemMessage(content=ROUTER_SYSTEM_PROMPT),
-        HumanMessage(content=f"Schema:\n{schema}\n\nQuestion: {question}"),
+        HumanMessage(content=user_msg),
     ])
 
     logger.info("Route: %s — %s", decision.route, decision.reason)

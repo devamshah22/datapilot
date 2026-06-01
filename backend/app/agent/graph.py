@@ -18,6 +18,10 @@ Graph (after session 4):
 
 The validator is rule-based (no LLM call) so the retry decision is fast
 and deterministic. Self-correction is bounded by settings.max_agent_retries.
+
+Session 5 added in-session memory: ``run_agent`` accepts an optional
+session id, loads recent queries as prompt context, and the caller
+(API layer) records successful queries back into the SessionStore.
 """
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ from app.agent.router import decide_after_router, router_node
 from app.agent.state import AgentState
 from app.agent.validator import validator_node
 from app.config import settings
+from app.session import get_session_store, render_session_context
 from app.tools.sql import get_sql_tool
 
 
@@ -105,17 +110,54 @@ def build_graph():
     return builder.compile()
 
 
-def run_agent(question: str) -> AgentState:
-    """Convenience entry-point: build the graph (cached), inject schema, run."""
+def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState, str]:
+    """Run the agent and return ``(final_state, session_id)``.
+
+    The session id used (existing or freshly minted) is returned so the
+    caller can echo it back to the client. After a successful SQL/viz
+    answer, the caller should record a QueryMemory back into the
+    SessionStore via ``record_query_after_run``.
+    """
     graph = _get_graph()
     schema = get_sql_tool().schema_summary()
+
+    store = get_session_store()
+    session = store.get_or_create(session_id)
+    context = render_session_context(session)
+
     initial: AgentState = {
         "question": question,
         "schema": schema,
+        "session_context": context,
         "previous_attempts": [],
     }
     final = graph.invoke(initial)
-    return final
+    return final, session.session_id
+
+
+def record_query_after_run(session_id: str, final: AgentState) -> None:
+    """Store a SUCCESSFUL SQL/viz attempt into the session as future context.
+
+    Skipped silently for clarify/refuse routes and for failed runs — we
+    don't want a broken query to poison subsequent follow-ups.
+    """
+    if final.get("route") not in ("sql", "viz"):
+        return
+    if final.get("error") or final.get("validation_failure"):
+        return
+    if not final.get("sql") or not final.get("rows"):
+        return
+
+    from app.session import QueryMemory
+
+    memory = QueryMemory(
+        question=final["question"],
+        sql=final["sql"],
+        columns=final.get("columns", []),
+        row_count=final.get("row_count", 0),
+        sample_rows=final.get("rows", [])[:3],
+    )
+    get_session_store().record_query(session_id, memory)
 
 
 # Cache the compiled graph so we don't rebuild on every request.
@@ -127,3 +169,4 @@ def _get_graph():
     if _graph is None:
         _graph = build_graph()
     return _graph
+

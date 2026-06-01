@@ -19,6 +19,7 @@ class AttemptRecord(TypedDict):
 class AgentState(TypedDict, total=False):
     # Input
     question: str
+    session_context: str  # rendered prior queries (empty when no follow-up)
 
     # Schema injected at graph entry so nodes don't reach into the SQL tool
     schema: str
