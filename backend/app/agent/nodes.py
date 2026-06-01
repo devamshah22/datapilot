@@ -125,6 +125,39 @@ Rules:
     BAD:  SELECT product_category_name FROM orders GROUP BY product_category_name
     GOOD: SELECT product_category_en   FROM orders GROUP BY product_category_en
   The user does not read Portuguese. Use product_category_en, not product_category_name.
+
+FOLLOW-UPS: When the prompt includes "PREVIOUS QUERIES IN THIS SESSION",
+the user's current question may be a refinement of an earlier one. In
+that case, MODIFY the previous SQL rather than writing a new one from
+scratch — keep its SELECT shape, its WHERE filters, and its metric.
+
+Concrete follow-up examples. Assume the previous query was:
+    SELECT product_category_en
+    FROM orders
+    GROUP BY product_category_en
+    ORDER BY SUM(price + freight_value) DESC
+    LIMIT 1
+which returned product_category_en = 'health_beauty'.
+
+  Follow-up: "Now break that down by Brazilian state"
+    BAD:  SELECT customer_state, COUNT(DISTINCT order_id) FROM orders
+          GROUP BY customer_state
+          (drops the revenue metric AND the category filter — wrong)
+    GOOD: SELECT customer_state, SUM(price + freight_value) AS revenue
+          FROM orders
+          WHERE product_category_en = 'health_beauty'
+          GROUP BY customer_state
+          ORDER BY revenue DESC
+
+  Follow-up: "Only the last 6 months"
+    BAD:  rewrites from scratch, drops the existing GROUP BY
+    GOOD: same SELECT and GROUP BY, ADD a WHERE clause on
+          order_purchase_timestamp
+
+  Follow-up: "Make it a chart" / "Show me a bar chart of that"
+    GOOD: produce essentially the SAME SQL as before — the chart-vs-table
+          decision is handled elsewhere; your job is the data.
+
 - Never write INSERT, UPDATE, DELETE, CREATE, DROP, or ALTER statements.
 """
 
