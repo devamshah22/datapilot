@@ -23,8 +23,8 @@ pyarrow==18.1.0
 # Visualization (server-side spec generation)
 plotly==5.24.1
 
-# Session storage (Redis backend; HTTP-based, works without local Redis)
-upstash-redis==1.4.0
+# Session storage (Supabase Postgres backend)
+supabase==2.11.0
 
 # Dev / test
 pytest==8.3.4

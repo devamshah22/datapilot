@@ -28,7 +28,8 @@ def _q(question: str = "Q") -> QueryMemory:
 
 def _store(**kwargs) -> SessionStore:
     """Construct a SessionStore with a fresh in-memory backend."""
-    kwargs.setdefault("backend", InMemoryBackend())
+    ttl = kwargs.pop("ttl_seconds", 30 * 60)
+    kwargs.setdefault("backend", InMemoryBackend(ttl_seconds=ttl))
     return SessionStore(**kwargs)
 
 

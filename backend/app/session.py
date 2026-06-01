@@ -1,20 +1,12 @@
 """In-session memory for follow-up questions.
 
-A SessionStore keeps a rolling window of recent successful queries per
-session, so questions like "now break that down by region" can be
-resolved against the previous query rather than treated as fresh.
-
 Backends
 --------
-- ``InMemoryBackend``  process-local dict, dies on restart. Good for
-                       tests and local dev when you don't have Redis.
-- ``RedisBackend``     Upstash Redis over its REST API. Survives
-                       restarts; supports overnight resumption. TTL
-                       is enforced server-side via SET ... EX.
+- ``InMemoryBackend``   process-local dict, dies on restart. Used by tests.
+- ``SupabaseBackend``   Postgres via Supabase REST API. Persistent across
+                        restarts, days, and multiple workers.
 
-The choice is driven by ``settings.session_backend`` ("memory" or "redis").
-SessionStore exposes a stable public API; agent code never sees which
-backend is in use.
+The choice is driven by ``settings.session_backend`` ("memory" or "supabase").
 """
 from __future__ import annotations
 
@@ -29,6 +21,9 @@ from typing import Any, Protocol
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# --- Data models ------------------------------------------------------------
 
 
 @dataclass
@@ -48,8 +43,6 @@ class Session:
     created_at: float
     last_accessed_at: float
     recent_queries: list[QueryMemory] = field(default_factory=list)
-
-    # --- (de)serialization ---------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -77,10 +70,8 @@ class Session:
 
 
 class SessionBackend(Protocol):
-    """Storage protocol for sessions. Both backends honour TTL."""
-
     def get(self, session_id: str) -> Session | None: ...
-    def save(self, session: Session, ttl_seconds: int) -> None: ...
+    def save(self, session: Session) -> None: ...
     def delete(self, session_id: str) -> None: ...
 
 
@@ -88,27 +79,24 @@ class SessionBackend(Protocol):
 
 
 class InMemoryBackend:
-    """Process-local store with lazy TTL eviction.
+    """Process-local store with lazy TTL eviction. Thread-safe."""
 
-    Suitable for tests and local development; loses data on restart.
-    Thread-safe.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, ttl_seconds: float = 30 * 60) -> None:
         self._sessions: dict[str, Session] = {}
         self._expires_at: dict[str, float] = {}
         self._lock = threading.Lock()
+        self._ttl = ttl_seconds
 
     def get(self, session_id: str) -> Session | None:
-        now = time.time()
         with self._lock:
-            self._evict_expired_locked(now)
+            self._evict_expired(time.time())
             return self._sessions.get(session_id)
 
-    def save(self, session: Session, ttl_seconds: int) -> None:
+    def save(self, session: Session) -> None:
         with self._lock:
             self._sessions[session.session_id] = session
-            self._expires_at[session.session_id] = time.time() + ttl_seconds
+            if self._ttl > 0:
+                self._expires_at[session.session_id] = time.time() + self._ttl
 
     def delete(self, session_id: str) -> None:
         with self._lock:
@@ -117,55 +105,107 @@ class InMemoryBackend:
 
     def __len__(self) -> int:
         with self._lock:
-            self._evict_expired_locked(time.time())
+            self._evict_expired(time.time())
             return len(self._sessions)
 
-    def _evict_expired_locked(self, now: float) -> None:
+    def _evict_expired(self, now: float) -> None:
+        if not self._ttl:
+            return
         expired = [sid for sid, exp in self._expires_at.items() if exp <= now]
         for sid in expired:
             self._sessions.pop(sid, None)
             self._expires_at.pop(sid, None)
 
 
-# --- Redis backend (Upstash REST) -------------------------------------------
+# --- Supabase backend -------------------------------------------------------
 
 
-class RedisBackend:
-    """Upstash Redis backend over the REST client.
+class SupabaseBackend:
+    """Postgres via Supabase REST API. Sessions persist indefinitely."""
 
-    Sessions are serialized as JSON and stored under the key
-    ``session:{session_id}``. TTL is enforced server-side via the ``ex``
-    parameter on SET — every save renews the TTL ("sliding expiration").
-    """
-
-    KEY_PREFIX = "session:"
-
-    def __init__(self, url: str, token: str) -> None:
-        from upstash_redis import Redis
-
-        self._redis = Redis(url=url, token=token)
-        logger.info("RedisBackend initialised at %s", url)
-
-    def _key(self, session_id: str) -> str:
-        return f"{self.KEY_PREFIX}{session_id}"
+    def __init__(self, url: str, key: str) -> None:
+        from supabase import create_client
+        self._client = create_client(url, key)
+        logger.info("SupabaseBackend connected to %s", url)
 
     def get(self, session_id: str) -> Session | None:
-        raw = self._redis.get(self._key(session_id))
-        if raw is None:
+        # Fetch session row
+        res = (
+            self._client.table("sessions")
+            .select("*")
+            .eq("id", session_id)
+            .execute()
+        )
+        if not res.data:
             return None
-        try:
-            data = json.loads(raw)
-        except (ValueError, TypeError) as e:
-            logger.warning("Failed to deserialize session %s: %s", session_id, e)
-            return None
-        return Session.from_dict(data)
+        row = res.data[0]
 
-    def save(self, session: Session, ttl_seconds: int) -> None:
-        payload = json.dumps(session.to_dict(), default=str)
-        self._redis.set(self._key(session.session_id), payload, ex=ttl_seconds)
+        # Fetch query memories ordered by position
+        mem_res = (
+            self._client.table("query_memories")
+            .select("*")
+            .eq("session_id", session_id)
+            .order("position")
+            .execute()
+        )
+        queries = [
+            QueryMemory(
+                question=m["question"],
+                sql=m["sql"],
+                columns=m["columns"] if isinstance(m["columns"], list) else json.loads(m["columns"]),
+                row_count=m["row_count"],
+                sample_rows=m["sample_rows"] if isinstance(m["sample_rows"], list) else json.loads(m["sample_rows"]),
+            )
+            for m in (mem_res.data or [])
+        ]
+
+        from datetime import datetime, timezone
+        created = datetime.fromisoformat(row["created_at"]).timestamp()
+        accessed = datetime.fromisoformat(row["last_accessed_at"]).timestamp()
+
+        return Session(
+            session_id=row["id"],
+            created_at=created,
+            last_accessed_at=accessed,
+            recent_queries=queries,
+        )
+
+    def save(self, session: Session) -> None:
+        from datetime import datetime, timezone
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Upsert session row
+        self._client.table("sessions").upsert({
+            "id": session.session_id,
+            "title": session.recent_queries[0].question if session.recent_queries else None,
+            "created_at": datetime.fromtimestamp(session.created_at, tz=timezone.utc).isoformat(),
+            "last_accessed_at": now_iso,
+        }).execute()
+
+        # Replace query memories: delete old, insert new
+        self._client.table("query_memories").delete().eq(
+            "session_id", session.session_id
+        ).execute()
+
+        if session.recent_queries:
+            rows = [
+                {
+                    "session_id": session.session_id,
+                    "position": i,
+                    "question": q.question,
+                    "sql": q.sql,
+                    "columns": q.columns,
+                    "row_count": q.row_count,
+                    "sample_rows": q.sample_rows,
+                }
+                for i, q in enumerate(session.recent_queries)
+            ]
+            self._client.table("query_memories").insert(rows).execute()
 
     def delete(self, session_id: str) -> None:
-        self._redis.delete(self._key(session_id))
+        # CASCADE handles query_memories
+        self._client.table("sessions").delete().eq("id", session_id).execute()
 
 
 # --- Public store -----------------------------------------------------------
@@ -181,32 +221,25 @@ class SessionStore:
         backend: SessionBackend | None = None,
     ) -> None:
         self.max_queries = max_queries_per_session
-        # Float on the public API for compat with previous tests; int internally.
         self.ttl_seconds = float(
             ttl_seconds if ttl_seconds is not None else settings.session_ttl_seconds
         )
-        # Important: use ``is None`` rather than ``backend or default``.
-        # ``InMemoryBackend`` defines ``__len__``, so an empty backend is falsy
-        # and ``or`` would skip past it to the default Redis backend.
         self._backend: SessionBackend = (
             backend if backend is not None else _build_default_backend()
         )
-
-    # --- session lifecycle ----------------------------------------------
 
     def get_or_create(self, session_id: str | None) -> Session:
         if session_id:
             existing = self._backend.get(session_id)
             if existing is not None:
-                # Touching a session refreshes TTL.
                 existing.last_accessed_at = time.time()
-                self._backend.save(existing, int(self.ttl_seconds))
+                self._backend.save(existing)
                 return existing
 
         new_id = session_id or uuid.uuid4().hex
         now = time.time()
         s = Session(session_id=new_id, created_at=now, last_accessed_at=now)
-        self._backend.save(s, int(self.ttl_seconds))
+        self._backend.save(s)
         return s
 
     def record_query(self, session_id: str, memory: QueryMemory) -> None:
@@ -218,38 +251,33 @@ class SessionStore:
         if len(s.recent_queries) > self.max_queries:
             s.recent_queries = s.recent_queries[-self.max_queries:]
         s.last_accessed_at = time.time()
-        self._backend.save(s, int(self.ttl_seconds))
+        self._backend.save(s)
 
     def get(self, session_id: str) -> Session | None:
         return self._backend.get(session_id)
 
     def __len__(self) -> int:
-        # Only meaningful for in-memory backends; Redis would need SCAN.
         if isinstance(self._backend, InMemoryBackend):
             return len(self._backend)
-        raise NotImplementedError(
-            "len() is only supported on the in-memory backend; "
-            "use Redis SCAN if you need session counts in production."
-        )
+        raise NotImplementedError("len() only supported on in-memory backend")
 
 
 def _build_default_backend() -> SessionBackend:
-    """Pick a backend based on settings; fall back to in-memory on misconfiguration."""
     choice = (settings.session_backend or "memory").lower()
-    if choice == "redis":
-        url = settings.upstash_redis_rest_url
-        token = settings.upstash_redis_rest_token
-        if not url or not token:
+    if choice == "supabase":
+        url = settings.supabase_url
+        key = settings.supabase_key
+        if not url or not key:
             logger.warning(
-                "SESSION_BACKEND=redis but UPSTASH_REDIS_REST_URL or "
-                "UPSTASH_REDIS_REST_TOKEN is missing. Falling back to in-memory."
+                "SESSION_BACKEND=supabase but SUPABASE_URL or SUPABASE_KEY "
+                "is missing. Falling back to in-memory."
             )
             return InMemoryBackend()
-        return RedisBackend(url=url, token=token)
+        return SupabaseBackend(url=url, key=key)
     return InMemoryBackend()
 
 
-# --- Module-level singleton + context renderer (unchanged) ------------------
+# --- Module-level singleton + context renderer ------------------------------
 
 _store: SessionStore | None = None
 
@@ -262,10 +290,8 @@ def get_session_store() -> SessionStore:
 
 
 def render_session_context(session: Session) -> str:
-    """Render recent queries as a compact string for prompt injection."""
     if not session.recent_queries:
         return ""
-
     lines = ["PREVIOUS QUERIES IN THIS SESSION (most recent last):"]
     for i, q in enumerate(session.recent_queries, 1):
         lines.append(

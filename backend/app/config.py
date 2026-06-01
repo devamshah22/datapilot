@@ -45,14 +45,11 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     # --- Session memory ---
-    # "memory" (process-local, lost on restart) or "redis" (persistent via Upstash).
+    # "memory" (process-local, lost on restart) or "supabase" (persistent Postgres).
     session_backend: str = Field(default="memory", alias="SESSION_BACKEND")
-    # Sliding TTL applied on every session write. 7 days by default for Redis;
-    # can be reduced to e.g. 30 minutes for in-memory if you want to mimic
-    # the previous behaviour.
-    session_ttl_seconds: int = Field(default=7 * 24 * 3600, alias="SESSION_TTL_SECONDS")
-    upstash_redis_rest_url: str | None = Field(default=None, alias="UPSTASH_REDIS_REST_URL")
-    upstash_redis_rest_token: str | None = Field(default=None, alias="UPSTASH_REDIS_REST_TOKEN")
+    session_ttl_seconds: int = Field(default=0, alias="SESSION_TTL_SECONDS")
+    supabase_url: str | None = Field(default=None, alias="SUPABASE_URL")
+    supabase_key: str | None = Field(default=None, alias="SUPABASE_KEY")
 
     # --- Safety limits ---
     sql_timeout_seconds: float = Field(default=10.0, alias="SQL_TIMEOUT_SECONDS")
