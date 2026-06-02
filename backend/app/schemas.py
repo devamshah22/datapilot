@@ -8,20 +8,34 @@ from pydantic import BaseModel, Field
 
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
-    # Optional. If absent, the server mints a new session and returns it
-    # in the response so the client can send it back on the next turn.
     session_id: str | None = Field(default=None, max_length=64)
 
 
 Route = Literal["sql", "viz", "clarify", "refuse"]
 
 
+class MessageOut(BaseModel):
+    """A single message in the conversation history."""
+    role: str  # "user" or "assistant"
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+
+
+class SessionListItem(BaseModel):
+    """Returned in GET /sessions list."""
+    session_id: str
+    title: str | None = None
+    created_at: str
+    last_accessed_at: str
+
+
 class AskResponse(BaseModel):
     question: str
     answer: str
-    session_id: str  # always returned, even if the client didn't supply one
+    session_id: str
 
-    # Routing transparency (debug aid + recruiter-friendly traces)
+    # Routing transparency
     route: Route | None = None
     route_reason: str | None = None
 
@@ -35,7 +49,7 @@ class AskResponse(BaseModel):
     chart_spec: dict[str, Any] | None = None
     chart_error: str | None = None
 
-    # Self-correction transparency (dev / debug — not surfaced to end user text)
+    # Self-correction transparency
     retry_count: int = 0
     previous_attempts: list[dict[str, Any]] = Field(default_factory=list)
     validation_failure: str | None = None
@@ -44,9 +58,10 @@ class AskResponse(BaseModel):
     error: str | None = None
 
 
-class SessionInfo(BaseModel):
-    """Returned by GET /sessions/{id} for debugging / observability."""
+class SessionDetail(BaseModel):
+    """Returned by GET /sessions/{id} — full message history."""
     session_id: str
-    created_at: float
-    last_accessed_at: float
-    recent_queries: list[dict[str, Any]] = Field(default_factory=list)
+    title: str | None = None
+    created_at: str
+    last_accessed_at: str
+    messages: list[MessageOut] = Field(default_factory=list)

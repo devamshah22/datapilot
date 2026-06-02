@@ -13,7 +13,6 @@ Safety:
     - Mutating SQL is rejected at the tool layer
 """
 import logging
-from dataclasses import asdict
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,8 +22,8 @@ from slowapi.util import get_remote_address
 
 from app.agent.graph import record_query_after_run, run_agent
 from app.config import settings
-from app.schemas import AskRequest, AskResponse, SessionInfo
-from app.session import get_session_store
+from app.schemas import AskRequest, AskResponse, MessageOut, SessionDetail, SessionListItem
+from app.session import SupabaseBackend, get_session_store
 from app.tools.sql import get_sql_tool
 
 logging.basicConfig(
@@ -93,9 +92,26 @@ def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
         logger.exception("Agent crashed")
         raise HTTPException(status_code=500, detail=f"Agent error: {e}") from e
 
-    # Record this turn into the session AFTER we have a final answer, so
-    # follow-up questions in the next turn can use it as context.
+    # Record into agent memory (for follow-up prompt context)
     record_query_after_run(session_id, final)
+
+    # Persist full messages into Supabase (for frontend chat history)
+    store = get_session_store()
+    backend = store._backend
+    if isinstance(backend, SupabaseBackend):
+        # Save user message
+        backend.save_message(session_id, "user", req.question)
+        # Save assistant message with metadata
+        metadata = {
+            "route": final.get("route"),
+            "route_reason": final.get("route_reason"),
+            "sql": final.get("sql"),
+            "columns": final.get("columns", []),
+            "row_count": final.get("row_count", 0),
+            "chart_spec": final.get("chart_spec"),
+            "error": final.get("error"),
+        }
+        backend.save_message(session_id, "assistant", final.get("answer", ""), metadata)
 
     return AskResponse(
         question=req.question,
@@ -116,16 +132,64 @@ def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
     )
 
 
-@app.get("/sessions/{sid}", response_model=SessionInfo)
+@app.get("/sessions", response_model=list[SessionListItem])
 @limiter.limit(settings.rate_limit_default)
-def get_session(request: Request, sid: str) -> SessionInfo:
-    """Debug endpoint — what does the agent remember for this session?"""
-    s = get_session_store().get(sid)
+def list_sessions(request: Request) -> list[SessionListItem]:
+    """List recent sessions for the sidebar."""
+    store = get_session_store()
+    backend = store._backend
+    if not isinstance(backend, SupabaseBackend):
+        return []
+    rows = backend.list_sessions()
+    return [
+        SessionListItem(
+            session_id=r["id"],
+            title=r.get("title"),
+            created_at=r["created_at"],
+            last_accessed_at=r["last_accessed_at"],
+        )
+        for r in rows
+    ]
+
+
+@app.get("/sessions/{sid}", response_model=SessionDetail)
+@limiter.limit(settings.rate_limit_default)
+def get_session(request: Request, sid: str) -> SessionDetail:
+    """Get full message history for a session."""
+    store = get_session_store()
+    backend = store._backend
+    if not isinstance(backend, SupabaseBackend):
+        raise HTTPException(status_code=404, detail="session storage not available")
+    s = backend.get(sid)
     if s is None:
-        raise HTTPException(status_code=404, detail="session not found or expired")
-    return SessionInfo(
+        raise HTTPException(status_code=404, detail="session not found")
+    messages_raw = backend.get_messages(sid)
+    messages = [
+        MessageOut(
+            role=m["role"],
+            content=m["content"],
+            metadata=m.get("metadata", {}),
+            created_at=m.get("created_at"),
+        )
+        for m in messages_raw
+    ]
+    from datetime import datetime, timezone
+    return SessionDetail(
         session_id=s.session_id,
-        created_at=s.created_at,
-        last_accessed_at=s.last_accessed_at,
-        recent_queries=[asdict(q) for q in s.recent_queries],
+        title=s.recent_queries[0].question if s.recent_queries else None,
+        created_at=datetime.fromtimestamp(s.created_at, tz=timezone.utc).isoformat(),
+        last_accessed_at=datetime.fromtimestamp(s.last_accessed_at, tz=timezone.utc).isoformat(),
+        messages=messages,
     )
+
+
+@app.delete("/sessions/{sid}")
+@limiter.limit(settings.rate_limit_default)
+def delete_session(request: Request, sid: str) -> dict[str, str]:
+    """Delete a session and all its messages."""
+    store = get_session_store()
+    backend = store._backend
+    if not isinstance(backend, SupabaseBackend):
+        raise HTTPException(status_code=404, detail="session storage not available")
+    backend.delete(sid)
+    return {"status": "deleted", "session_id": sid}

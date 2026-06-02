@@ -204,8 +204,40 @@ class SupabaseBackend:
             self._client.table("query_memories").insert(rows).execute()
 
     def delete(self, session_id: str) -> None:
-        # CASCADE handles query_memories
+        # CASCADE handles query_memories and messages
         self._client.table("sessions").delete().eq("id", session_id).execute()
+
+    # --- Message history (for frontend sidebar / chat UI) ---
+
+    def save_message(
+        self, session_id: str, role: str, content: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        self._client.table("messages").insert({
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "metadata": metadata or {},
+        }).execute()
+
+    def get_messages(self, session_id: str) -> list[dict[str, Any]]:
+        res = (
+            self._client.table("messages")
+            .select("role, content, metadata, created_at")
+            .eq("session_id", session_id)
+            .order("created_at")
+            .execute()
+        )
+        return res.data or []
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        res = (
+            self._client.table("sessions")
+            .select("id, title, created_at, last_accessed_at")
+            .order("last_accessed_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        return res.data or []
 
 
 # --- Public store -----------------------------------------------------------
