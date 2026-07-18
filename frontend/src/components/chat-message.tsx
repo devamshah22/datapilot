@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight, User, Bot } from "lucide-react";
+import { User, Bot } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// Plotly is heavy — load it only client-side when needed
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
 
 interface ChatMessageProps {
@@ -14,15 +12,14 @@ interface ChatMessageProps {
     route?: string;
     sql?: string;
     chart_spec?: { data?: object[]; layout?: object };
+    type?: string;
     [key: string]: unknown;
   };
 }
 
 export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
-  const [showSql, setShowSql] = useState(false);
-  const sql = metadata?.sql;
   const chartSpec = metadata?.chart_spec;
-  const route = metadata?.route;
+  const isUpload = metadata?.type === "upload";
 
   return (
     <div
@@ -44,32 +41,9 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
 
       <div className="flex-1 min-w-0 space-y-2">
         {/* Main content */}
-        <div className="whitespace-pre-wrap text-sm">{content}</div>
-
-        {/* Route badge */}
-        {role === "assistant" && route ? (
-          <span className="inline-block text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
-            {route}
-          </span>
-        ) : null}
-
-        {/* SQL collapsible */}
-        {sql && (
-          <div className="mt-2">
-            <button
-              onClick={() => setShowSql(!showSql)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showSql ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              Show SQL
-            </button>
-            {showSql && (
-              <pre className="mt-1 p-3 rounded bg-muted text-xs overflow-x-auto font-mono">
-                {sql}
-              </pre>
-            )}
-          </div>
-        )}
+        <div className={`whitespace-pre-wrap text-sm ${isUpload ? "text-muted-foreground italic" : ""}`}>
+          {content}
+        </div>
 
         {/* Chart */}
         {chartSpec && chartSpec.data && (

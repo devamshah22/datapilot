@@ -131,6 +131,12 @@ def validate_and_convert(
     table_name = _derive_table_name(filename, existing_table_names or [])
 
     # --- Write Parquet ---
+    # Handle mixed-type columns (common in Excel): convert object columns to
+    # string so PyArrow doesn't choke on mixed int/str/None columns.
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].astype(str).replace("nan", None).replace("None", None)
+
     output_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = output_dir / f"{table_name}.parquet"
 

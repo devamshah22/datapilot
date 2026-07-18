@@ -135,28 +135,24 @@ export default function ChatPage() {
     try {
       const result = await uploadFiles(sid, files);
 
-      // Show upload result as a system message
-      let content = "";
+      // Show upload result as a compact chip-style user message
       if (result.uploaded.length > 0) {
-        content += `Uploaded ${result.uploaded.length} file(s):\n`;
-        result.uploaded.forEach((u) => {
-          content += `  • ${u.filename} → table "${u.table_name}" (${u.rows.toLocaleString()} rows, ${u.columns.length} columns)\n`;
-        });
+        const names = result.uploaded.map((u) => u.filename).join(", ");
+        const uploadMsg: LocalMessage = {
+          role: "user",
+          content: `📎 Uploaded: ${names}`,
+          metadata: { type: "upload", files: result.uploaded },
+        };
+        setMessages((prev) => [...prev, uploadMsg]);
       }
       if (result.errors.length > 0) {
-        content += `\nFailed:\n`;
-        result.errors.forEach((e) => {
-          content += `  • ${e.filename}: ${e.error}\n`;
-        });
+        const errorMsg: LocalMessage = {
+          role: "assistant",
+          content: `Some files couldn't be uploaded:\n${result.errors.map((e) => `• ${e.filename}: ${e.error}`).join("\n")}`,
+          metadata: {},
+        };
+        setMessages((prev) => [...prev, errorMsg]);
       }
-      content += "\nYou can now ask questions about your data.";
-
-      const uploadMsg: LocalMessage = {
-        role: "assistant",
-        content,
-        metadata: { route: "upload" },
-      };
-      setMessages((prev) => [...prev, uploadMsg]);
       await loadSessions();
     } catch (err) {
       const errorMsg: LocalMessage = {
