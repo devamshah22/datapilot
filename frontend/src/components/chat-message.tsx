@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { User, Bot, Copy, Check, Maximize2, X, Download } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -21,7 +21,6 @@ interface ChatMessageProps {
 export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const fullscreenPlotRef = useRef<any>(null);
   const chartSpec = metadata?.chart_spec;
   const isUpload = metadata?.type === "upload";
 
@@ -75,19 +74,43 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
           {/* Chart (inline) */}
           {chartSpec && chartSpec.data && (
             <div className="mt-3 rounded border overflow-hidden relative group/chart">
-              <button
-                onClick={() => setFullscreen(true)}
-                className="absolute top-2 right-2 z-10 p-1.5 rounded bg-background/80 border opacity-0 group-hover/chart:opacity-100 transition-opacity hover:bg-muted"
-                aria-label="View chart fullscreen"
-              >
-                <Maximize2 className="w-4 h-4" />
-              </button>
-              <Plot
-                data={chartSpec.data as any}
-                layout={{ ...chartLayout, height: 350 }}
-                config={{ displayModeBar: false, displaylogo: false, responsive: true }}
-                style={{ width: "100%" }}
-              />
+              <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
+                <button
+                  onClick={() => {
+                    const plotEl = document.getElementById(`chart-inline-${content?.slice(0, 8) || "x"}`);
+                    if (plotEl) {
+                      const Plotly = (window as any).Plotly;
+                      if (Plotly) {
+                        Plotly.downloadImage(plotEl, {
+                          format: "png",
+                          width: 1200,
+                          height: 800,
+                          filename: "datapilot-chart",
+                        });
+                      }
+                    }
+                  }}
+                  className="p-1.5 rounded bg-background/80 border hover:bg-muted"
+                  aria-label="Download chart"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setFullscreen(true)}
+                  className="p-1.5 rounded bg-background/80 border hover:bg-muted"
+                  aria-label="View chart fullscreen"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              </div>
+              <div id={`chart-inline-${content?.slice(0, 8) || "x"}`}>
+                <Plot
+                  data={chartSpec.data as any}
+                  layout={{ ...chartLayout, height: 350 }}
+                  config={{ displayModeBar: false, displaylogo: false, responsive: true }}
+                  style={{ width: "100%" }}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -121,7 +144,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
                 onClick={() => {
-                  const plotEl = fullscreenPlotRef.current?.el;
+                  const plotEl = document.getElementById("chart-fullscreen");
                   if (plotEl) {
                     const Plotly = (window as any).Plotly;
                     if (Plotly) {
@@ -147,18 +170,19 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <Plot
-              ref={fullscreenPlotRef}
-              data={chartSpec.data as any}
-              layout={{
-                ...chartLayout,
-                height: undefined,
-                margin: { l: 80, r: 40, t: 60, b: 120 },
-              }}
-              config={{ displayModeBar: false, displaylogo: false, responsive: true }}
-              style={{ width: "100%", height: "100%" }}
-              useResizeHandler
-            />
+            <div id="chart-fullscreen" style={{ width: "100%", height: "100%" }}>
+              <Plot
+                data={chartSpec.data as any}
+                layout={{
+                  ...chartLayout,
+                  height: undefined,
+                  margin: { l: 80, r: 40, t: 60, b: 120 },
+                }}
+                config={{ displayModeBar: false, displaylogo: false, responsive: true }}
+                style={{ width: "100%", height: "100%" }}
+                useResizeHandler
+              />
+            </div>
           </div>
         </div>
       )}
