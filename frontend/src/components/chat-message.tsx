@@ -35,14 +35,49 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
     ...(chartSpec?.layout as any || {}),
     autosize: true,
     margin: { l: 60, r: 30, t: 50, b: 100 },
-    paper_bgcolor: "transparent",
-    plot_bgcolor: "transparent",
-    font: { color: "currentColor" },
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#888888" },
     xaxis: {
       ...(chartSpec?.layout as any)?.xaxis,
       tickangle: -45,
       automargin: true,
+      gridcolor: "rgba(128,128,128,0.2)",
     },
+    yaxis: {
+      ...(chartSpec?.layout as any)?.yaxis,
+      gridcolor: "rgba(128,128,128,0.2)",
+    },
+  };
+
+  // For PNG export we force a white background + dark text so labels are
+  // always readable regardless of the on-screen theme.
+  const exportLayout = {
+    ...chartLayout,
+    paper_bgcolor: "#ffffff",
+    plot_bgcolor: "#ffffff",
+    font: { color: "#1a1a1a" },
+    xaxis: { ...chartLayout.xaxis, gridcolor: "rgba(0,0,0,0.1)" },
+    yaxis: { ...chartLayout.yaxis, gridcolor: "rgba(0,0,0,0.1)" },
+  };
+
+  const downloadChart = (wrapperId: string) => {
+    const wrapper = document.getElementById(wrapperId);
+    const plotEl = wrapper?.querySelector(".js-plotly-plot");
+    if (!plotEl) return;
+    const Plotly = (window as any).Plotly;
+    if (!Plotly) return;
+    // Temporarily relayout to export-friendly colors, snapshot, then restore
+    Plotly.relayout(plotEl, exportLayout).then(() => {
+      Plotly.downloadImage(plotEl, {
+        format: "png",
+        width: 1200,
+        height: 800,
+        filename: "datapilot-chart",
+      }).then(() => {
+        Plotly.relayout(plotEl, chartLayout);
+      });
+    });
   };
 
   return (
@@ -77,21 +112,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             <div className="mt-3 rounded border overflow-hidden relative group/chart">
               <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
                 <button
-                  onClick={() => {
-                    const wrapper = document.getElementById(chartId);
-                    const plotEl = wrapper?.querySelector(".js-plotly-plot");
-                    if (plotEl) {
-                      const Plotly = (window as any).Plotly;
-                      if (Plotly) {
-                        Plotly.downloadImage(plotEl, {
-                          format: "png",
-                          width: 1200,
-                          height: 800,
-                          filename: "datapilot-chart",
-                        });
-                      }
-                    }
-                  }}
+                  onClick={() => downloadChart(chartId)}
                   className="p-1.5 rounded bg-background/80 border hover:bg-muted"
                   aria-label="Download chart"
                 >
@@ -145,21 +166,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
           >
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
-                onClick={() => {
-                  const wrapper = document.getElementById(`${chartId}-fs`);
-                  const plotEl = wrapper?.querySelector(".js-plotly-plot");
-                  if (plotEl) {
-                    const Plotly = (window as any).Plotly;
-                    if (Plotly) {
-                      Plotly.downloadImage(plotEl, {
-                        format: "png",
-                        width: 1200,
-                        height: 800,
-                        filename: "datapilot-chart",
-                      });
-                    }
-                  }
-                }}
+                onClick={() => downloadChart(`${chartId}-fs`)}
                 className="p-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
                 aria-label="Download chart"
               >
