@@ -22,7 +22,7 @@ export function Sidebar({
   onDeleteSession,
 }: SidebarProps) {
   return (
-    <div className="w-64 h-full border-r flex flex-col bg-muted/30">
+    <div className="w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between">
         <h1 className="font-semibold text-sm">DataPilot</h1>

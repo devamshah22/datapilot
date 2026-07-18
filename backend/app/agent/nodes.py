@@ -360,13 +360,7 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
 
     # Viz route, SQL succeeded, chart succeeded
     if route == "viz" and state.get("chart_spec"):
-        return {
-            "answer": (
-                f"Here is the chart for your question. "
-                f"It is built from {row_count} rows aggregated by SQL "
-                f"(columns: {cols})."
-            )
-        }
+        return {"answer": ""}
 
     # Viz route, SQL succeeded but chart-building failed
     # (e.g., LLM rate limit during chart_spec call)

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   askQuestion,
   listSessions,
@@ -26,7 +25,7 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load sessions on mount
   useEffect(() => {
@@ -35,9 +34,7 @@ export default function ChatPage() {
 
   // Scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   async function loadSessions() {
@@ -45,7 +42,7 @@ export default function ChatPage() {
       const list = await listSessions();
       setSessions(list);
     } catch {
-      // Silently fail — sessions just won't show
+      // Silently fail
     }
   }
 
@@ -99,11 +96,7 @@ export default function ChatPage() {
         content: response.answer,
         metadata: {
           route: response.route,
-          route_reason: response.route_reason,
-          sql: response.sql,
           chart_spec: response.chart_spec,
-          columns: response.columns,
-          row_count: response.row_count,
           error: response.error,
         },
       };
@@ -135,7 +128,6 @@ export default function ChatPage() {
     try {
       const result = await uploadFiles(sid, files);
 
-      // Show upload result as a compact chip-style user message
       if (result.uploaded.length > 0) {
         const names = result.uploaded.map((u) => u.filename).join(", ");
         const uploadMsg: LocalMessage = {
@@ -167,8 +159,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen">
-      {/* Sidebar */}
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar — fixed, independent scroll */}
       <Sidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
@@ -177,37 +169,39 @@ export default function ChatPage() {
         onDeleteSession={handleDeleteSession}
       />
 
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Messages */}
-        <ScrollArea className="flex-1" ref={scrollRef}>
+      {/* Main chat area — flex column, own scroll */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {/* Messages — scrollable independently */}
+        <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto">
             {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full min-h-[60vh] text-muted-foreground">
+              <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
                 <div className="text-center space-y-3">
                   <h2 className="text-2xl font-semibold text-foreground">
                     DataPilot
                   </h2>
                   <p className="text-sm max-w-md">
                     Upload a CSV or Excel file and ask questions about your data.
-                    The agent picks between SQL, Python, and visualizations automatically.
                   </p>
                 </div>
               </div>
             ) : (
-              messages.map((msg, i) => (
-                <ChatMessage
-                  key={i}
-                  role={msg.role}
-                  content={msg.content}
-                  metadata={msg.metadata}
-                />
-              ))
+              <>
+                {messages.map((msg, i) => (
+                  <ChatMessage
+                    key={i}
+                    role={msg.role}
+                    content={msg.content}
+                    metadata={msg.metadata}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </>
             )}
           </div>
-        </ScrollArea>
+        </div>
 
-        {/* Input */}
+        {/* Input — pinned to bottom */}
         <ChatInput
           onSend={handleSend}
           onUpload={handleUpload}

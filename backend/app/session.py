@@ -160,8 +160,9 @@ class SupabaseBackend:
         ]
 
         from datetime import datetime, timezone
-        created = datetime.fromisoformat(row["created_at"]).timestamp()
-        accessed = datetime.fromisoformat(row["last_accessed_at"]).timestamp()
+        from dateutil.parser import isoparse
+        created = isoparse(row["created_at"]).timestamp()
+        accessed = isoparse(row["last_accessed_at"]).timestamp()
 
         return Session(
             session_id=row["id"],
