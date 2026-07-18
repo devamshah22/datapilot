@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class RouteDecision(BaseModel):
     """Structured output from the router LLM call."""
 
-    route: Literal["sql", "viz", "clarify", "refuse"] = Field(
+    route: Literal["sql", "viz", "python", "clarify", "refuse"] = Field(
         ..., description="Which execution path to take."
     )
     reason: str = Field(
@@ -39,6 +39,8 @@ Given a user question and a dataset schema, decide which path to take:
 - "sql"      — answerable with a single SQL query (aggregations, filters, ranking, group by)
 - "viz"      — user explicitly asks for a chart/plot/graph/visualization, OR the answer is much
                clearer as a visualization (time series, distributions, comparisons across many groups)
+- "python"   — requires statistical analysis, time-series operations (rolling averages), outlier
+               detection, correlation, clustering, or other operations best done in pandas/scipy/sklearn
 - "clarify"  — question is genuinely under-specified (vague metric, no time frame, ambiguous "best")
                and a reasonable analyst would need to ask before answering
 - "refuse"   — question requires forecasting (predict future values), causal claims (why did X happen),

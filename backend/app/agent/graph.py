@@ -30,9 +30,11 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.nodes import (
     clarify_node,
     compose_answer_node,
+    execute_python_node,
     execute_sql_node,
     make_chart_node,
     refuse_node,
+    write_python_node,
     write_sql_node,
 )
 from app.agent.router import decide_after_router, router_node
@@ -70,6 +72,8 @@ def build_graph():
     builder.add_node("execute_sql", execute_sql_node)
     builder.add_node("validator", validator_node)
     builder.add_node("make_chart", make_chart_node)
+    builder.add_node("write_python", write_python_node)
+    builder.add_node("execute_python", execute_python_node)
     builder.add_node("clarify_node", clarify_node)
     builder.add_node("refuse_node", refuse_node)
     builder.add_node("compose_answer", compose_answer_node)
@@ -83,6 +87,7 @@ def build_graph():
         {
             "sql": "write_sql",
             "viz": "write_sql",
+            "python": "write_python",
             "clarify": "clarify_node",
             "refuse": "refuse_node",
         },
@@ -102,7 +107,11 @@ def build_graph():
     )
     builder.add_edge("make_chart", "compose_answer")
 
-    # Clarify / refuse paths bypass SQL entirely
+    # Python path: write -> execute -> compose
+    builder.add_edge("write_python", "execute_python")
+    builder.add_edge("execute_python", "compose_answer")
+
+    # Clarify / refuse paths bypass everything
     builder.add_edge("clarify_node", "compose_answer")
     builder.add_edge("refuse_node", "compose_answer")
 

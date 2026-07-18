@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-Route = Literal["sql", "viz", "clarify", "refuse"]
+Route = Literal["sql", "viz", "python", "clarify", "refuse"]
 
 
 class AttemptRecord(TypedDict):
@@ -46,6 +46,10 @@ class AgentState(TypedDict, total=False):
     # Filled by make_chart node (only on viz route)
     chart_spec: dict[str, Any]
     chart_error: str  # chart build failed (SQL still succeeded)
+
+    # Filled by python tool (only on python route)
+    python_code: str
+    python_output: str
 
     # Final user-facing answer composed at the end of the graph
     answer: str

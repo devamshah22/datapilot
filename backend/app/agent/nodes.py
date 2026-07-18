@@ -346,6 +346,13 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
             )
         }
 
+    # Python route — answer comes from python_output
+    if route == "python":
+        python_output = state.get("python_output", "")
+        if python_output:
+            return {"answer": python_output}
+        return {"answer": "The Python analysis ran but produced no output."}
+
     rows = state.get("rows", [])
     cols = state.get("columns", [])
     row_count = state.get("row_count", 0)
@@ -444,3 +451,85 @@ def clarify_node(state: AgentState) -> dict[str, Any]:
 def refuse_node(state: AgentState) -> dict[str, Any]:
     """No-op pass-through; refusal text already in route_reason."""
     return {}
+
+
+# --- Python tool nodes -------------------------------------------------------
+
+PYTHON_SYSTEM_PROMPT = """You are an expert data scientist who writes Python/pandas code.
+
+Rules:
+- Output ONLY executable Python code. No prose, no markdown fences, no comments explaining what the code does.
+- The DataFrame is pre-loaded as `df`. Do NOT read files yourself.
+- Store your final answer in a variable called `result`.
+  - If the result is a number, assign it directly: result = 0.42
+  - If the result is a DataFrame or Series, assign it: result = df_summary
+  - If the result is text, assign a string: result = "The outliers are..."
+- You have access to: pandas (pd), numpy (np), scipy.stats, sklearn.cluster,
+  sklearn.preprocessing, sklearn.metrics, statistics, math, datetime.
+- Do NOT import os, sys, subprocess, requests, urllib, or any I/O modules.
+- Keep code concise. Prefer vectorized pandas/numpy over loops.
+- For outlier detection, use IQR or z-score and explain the threshold in the result.
+- For correlations, use df[col1].corr(df[col2]).
+- For rolling averages, group by date first, then use .rolling().mean().
+- For clustering, standardize features first, then use KMeans.
+"""
+
+_PYTHON_FENCE_RE = re.compile(r"^```(?:python)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+
+
+def write_python_node(state: AgentState) -> dict[str, Any]:
+    """LLM writes Python/pandas code for the question."""
+    question = state["question"]
+    schema = state["schema"]
+    session_context = state.get("session_context", "")
+
+    llm = _get_llm()
+    prompt = f"Schema:\n{schema}\n\n"
+    if session_context:
+        prompt += f"{session_context}\n\n"
+    prompt += f"Question: {question}\n\nWrite the Python code."
+
+    response = llm.invoke([
+        SystemMessage(content=PYTHON_SYSTEM_PROMPT),
+        HumanMessage(content=prompt),
+    ])
+    code = response.content if isinstance(response.content, str) else str(response.content)
+    code = _PYTHON_FENCE_RE.sub("", code).strip()
+    logger.info("Generated Python code:\n%s", code)
+    return {"python_code": code}
+
+
+def execute_python_node(state: AgentState) -> dict[str, Any]:
+    """Execute the LLM-generated Python code in a Docker sandbox."""
+    from app.tools.python_tool import execute_python
+
+    code = state.get("python_code", "")
+    session_id = state.get("session_id", "")
+
+    # Determine which parquet files to mount
+    parquet_paths: list[str] = []
+
+    # Check for per-session uploaded data first
+    from app.tools.dataset_manager import get_dataset_manager
+    mgr = get_dataset_manager()
+    ds = mgr.get(session_id) if session_id else None
+    if ds and ds.files:
+        parquet_paths = [str(f.parquet_path.resolve()) for f in ds.files]
+    else:
+        # Fallback to Olist parquet (create if needed)
+        from pathlib import Path
+        from app.config import settings
+        parquet = settings.dataset_path.with_suffix(".parquet")
+        if not parquet.exists():
+            import pandas as pd
+            df = pd.read_csv(settings.dataset_path)
+            df.to_parquet(parquet, index=False)
+        parquet_paths = [str(parquet.resolve())]
+
+    result = execute_python(code, parquet_paths=parquet_paths)
+
+    if not result.ok:
+        logger.warning("Python execution failed: %s", result.error)
+        return {"error": result.error or "Python execution failed", "python_output": ""}
+
+    return {"python_output": result.output or "", "error": ""}
