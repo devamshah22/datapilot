@@ -113,22 +113,36 @@ def build_graph():
 def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState, str]:
     """Run the agent and return ``(final_state, session_id)``.
 
+    Schema source priority:
+      1. If the session has uploaded files → use per-session DatasetManager schema
+      2. Otherwise → fall back to the global Olist dev dataset (SQLTool singleton)
+
     The session id used (existing or freshly minted) is returned so the
-    caller can echo it back to the client. After a successful SQL/viz
-    answer, the caller should record a QueryMemory back into the
-    SessionStore via ``record_query_after_run``.
+    caller can echo it back to the client.
     """
     graph = _get_graph()
-    schema = get_sql_tool().schema_summary()
 
     store = get_session_store()
     session = store.get_or_create(session_id)
     context = render_session_context(session)
 
+    # Decide which schema + executor to use
+    from app.tools.dataset_manager import get_dataset_manager
+    mgr = get_dataset_manager()
+    ds = mgr.get(session.session_id)
+
+    if ds and ds.files:
+        # User has uploaded data — use their schema
+        schema = ds.schema_summary()
+    else:
+        # No uploads — fall back to the global Olist dev dataset
+        schema = get_sql_tool().schema_summary()
+
     initial: AgentState = {
         "question": question,
         "schema": schema,
         "session_context": context,
+        "session_id": session.session_id,
         "previous_attempts": [],
     }
     final = graph.invoke(initial)

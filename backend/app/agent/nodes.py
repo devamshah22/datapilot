@@ -231,32 +231,68 @@ def write_sql_node(state: AgentState) -> dict[str, Any]:
 
 def execute_sql_node(state: AgentState) -> dict[str, Any]:
     sql = state.get("sql", "")
-    tool = get_sql_tool()
-    result = tool.execute(sql)
+    session_id = state.get("session_id", "")
 
-    if not result.ok:
-        logger.warning("SQL execution failed: %s", result.error)
-        # Append this failed attempt so a retry has full context.
-        attempts = list(state.get("previous_attempts", []))
-        attempts.append({"sql": sql, "error": result.error or "unknown error"})
+    # Pick the right executor: per-session uploads or global Olist fallback
+    from app.tools.dataset_manager import get_dataset_manager
+    mgr = get_dataset_manager()
+    ds = mgr.get(session_id) if session_id else None
+
+    if ds and ds.files:
+        # Execute against the session's uploaded Parquet data
+        sql_stripped = sql.strip().rstrip(";").strip()
+        first_token = sql_stripped.split(None, 1)[0].lower() if sql_stripped else ""
+        if first_token not in {"select", "with"}:
+            error_msg = f"Only SELECT/WITH queries are allowed; got '{first_token or '<empty>'}'."
+            attempts = list(state.get("previous_attempts", []))
+            attempts.append({"sql": sql, "error": error_msg})
+            return {"error": error_msg, "rows": [], "columns": [], "row_count": 0, "previous_attempts": attempts}
+
+        try:
+            rel = ds.execute(sql_stripped)
+            df = rel.fetch_df()
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            logger.warning("SQL execution failed: %s", error_msg)
+            attempts = list(state.get("previous_attempts", []))
+            attempts.append({"sql": sql, "error": error_msg})
+            return {"error": error_msg, "rows": [], "columns": [], "row_count": 0, "previous_attempts": attempts}
+
+        cleaned = _clean_dataframe(df)
+        rows = _sanitize_records(cleaned.head(50).to_dict(orient="records"))
         return {
-            "error": result.error or "unknown error",
-            "rows": [],
-            "columns": [],
-            "row_count": 0,
-            "previous_attempts": attempts,
+            "columns": list(df.columns),
+            "rows": rows,
+            "row_count": len(cleaned),
+            "error": "",
         }
+    else:
+        # Fallback: global Olist dev dataset
+        tool = get_sql_tool()
+        result = tool.execute(sql)
 
-    df = result.dataframe
-    assert df is not None  # narrowed by result.ok
-    cleaned = _clean_dataframe(df)
-    rows = _sanitize_records(cleaned.head(50).to_dict(orient="records"))
-    return {
-        "columns": result.columns,
-        "rows": rows,
-        "row_count": len(cleaned),
-        "error": "",  # explicitly clear any prior error in state
-    }
+        if not result.ok:
+            logger.warning("SQL execution failed: %s", result.error)
+            attempts = list(state.get("previous_attempts", []))
+            attempts.append({"sql": sql, "error": result.error or "unknown error"})
+            return {
+                "error": result.error or "unknown error",
+                "rows": [],
+                "columns": [],
+                "row_count": 0,
+                "previous_attempts": attempts,
+            }
+
+        df = result.dataframe
+        assert df is not None
+        cleaned = _clean_dataframe(df)
+        rows = _sanitize_records(cleaned.head(50).to_dict(orient="records"))
+        return {
+            "columns": result.columns,
+            "rows": rows,
+            "row_count": len(cleaned),
+            "error": "",
+        }
 
 
 def compose_answer_node(state: AgentState) -> dict[str, Any]:
