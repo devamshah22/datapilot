@@ -25,6 +25,18 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
   const chartSpec = metadata?.chart_spec;
   const isUpload = metadata?.type === "upload";
 
+  // Extract chart title (set by the backend viz tool) for display + filename
+  const rawTitle = (chartSpec?.layout as any)?.title;
+  const chartTitle =
+    typeof rawTitle === "string"
+      ? rawTitle
+      : (rawTitle?.text as string | undefined) || "chart";
+  const safeFilename = chartTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "datapilot-chart";
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
@@ -33,8 +45,12 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
 
   const chartLayout = {
     ...(chartSpec?.layout as any || {}),
+    title: {
+      text: chartTitle,
+      font: { size: 16 },
+    },
     autosize: true,
-    margin: { l: 60, r: 30, t: 50, b: 100 },
+    margin: { l: 60, r: 30, t: 60, b: 100 },
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     font: { color: "#888888" },
@@ -57,6 +73,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
     font: { color: "#1a1a1a" },
+    title: { text: chartTitle, font: { size: 16, color: "#1a1a1a" } },
     xaxis: { ...chartLayout.xaxis, gridcolor: "rgba(0,0,0,0.1)" },
     yaxis: { ...chartLayout.yaxis, gridcolor: "rgba(0,0,0,0.1)" },
   };
@@ -67,13 +84,12 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
     if (!plotEl) return;
     const Plotly = (window as any).Plotly;
     if (!Plotly) return;
-    // Temporarily relayout to export-friendly colors, snapshot, then restore
     Plotly.relayout(plotEl, exportLayout).then(() => {
       Plotly.downloadImage(plotEl, {
         format: "png",
         width: 1200,
         height: 800,
-        filename: "datapilot-chart",
+        filename: safeFilename,
       }).then(() => {
         Plotly.relayout(plotEl, chartLayout);
       });
