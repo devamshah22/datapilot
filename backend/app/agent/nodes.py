@@ -56,15 +56,22 @@ def _clean_dataframe(df: pd.DataFrame, decimals: int = NUMERIC_DECIMALS) -> pd.D
 
 
 def _sanitize_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Replace NaN with None in serialized rows so JSON encoding works.
+    """Replace NaN with None and convert non-JSON-serializable types in serialized rows.
 
     Run this AFTER ``df.to_dict(orient="records")`` — at that point we have
     plain Python objects and can swap floats for None safely.
     """
+    import datetime as _dt
+
     for row in records:
         for key, value in row.items():
             if isinstance(value, float) and math.isnan(value):
                 row[key] = None
+            elif hasattr(value, "isoformat"):
+                # pandas Timestamp, datetime, date → ISO string
+                row[key] = value.isoformat()
+            elif isinstance(value, _dt.timedelta):
+                row[key] = str(value)
     return records
 
 

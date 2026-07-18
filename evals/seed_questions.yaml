@@ -65,7 +65,7 @@ questions:
     question: What is the return rate by category? (Use canceled orders as a proxy.)
     category: sql
     expected_tool: sql
-    notes: order_status field. Agent must reason that "canceled" is the closest signal we have to "return". Good test of approximate-question handling.
+    notes: 'order_status field. Agent must reason that "canceled" is the closest signal we have to "return". Good test of approximate-question handling.'
 
   # --- Python / pandas territory ---
   - id: py_001
@@ -134,13 +134,16 @@ questions:
     question: Who is our best customer?
     category: ambiguous
     expected_tool: clarify
-    notes: "Best" by revenue, frequency, or recency? Should ask.
+    notes: >
+      "Best" by revenue, frequency, or recency? Should ask.
 
   - id: amb_003
     question: Was last month good?
     category: ambiguous
     expected_tool: clarify
-    notes: "Good" is undefined. Compared to what? Should ask. Note "last month" relative to data range — Olist data ends in Aug 2018, not real time.
+    notes: >
+      "Good" is undefined. Compared to what? Should ask. Note "last month"
+      relative to data range — Olist data ends in Aug 2018, not real time.
 
   - id: amb_004
     question: Which products should we promote?
@@ -171,7 +174,7 @@ questions:
     question: Which customers are most likely to churn?
     category: trick
     expected_tool: refuse
-    notes: Requires building a churn model. Agent should propose a proxy (e.g., "no order in 90+ days") and ask before computing.
+    notes: 'Requires building a churn model. Agent should propose a proxy (e.g., "no order in 90+ days") and ask before computing.'
 
   # --- Follow-ups (in-session memory) ---
   - id: fu_001
@@ -179,14 +182,14 @@ questions:
     category: followup
     expected_tool: sql
     depends_on: sql_002
-    notes: "That" refers to the highest-revenue category. Memory required.
+    notes: '"That" refers to the highest-revenue category. Memory required.'
 
   - id: fu_002
     question: Only show the last 6 months of data.
     category: followup
     expected_tool: sql
     depends_on: viz_001
-    notes: Filter applied to previously generated chart query. "Last 6 months" relative to data max date, not today.
+    notes: 'Filter applied to previously generated chart query. "Last 6 months" relative to data max date, not today.'
 
   - id: fu_003
     question: Make it a bar chart instead.
