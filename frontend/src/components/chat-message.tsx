@@ -84,7 +84,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
               <Plot
                 data={chartSpec.data as any}
                 layout={{ ...chartLayout, height: 350 }}
-                config={{ displayModeBar: false, responsive: true }}
+                config={{ displayModeBar: false, displaylogo: false, responsive: true }}
                 style={{ width: "100%" }}
               />
             </div>
@@ -131,7 +131,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
                 height: undefined,
                 margin: { l: 80, r: 40, t: 60, b: 120 },
               }}
-              config={{ displayModeBar: true, responsive: true }}
+              config={{ displayModeBar: true, displaylogo: false, responsive: true }}
               style={{ width: "100%", height: "100%" }}
               useResizeHandler
             />
