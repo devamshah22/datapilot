@@ -21,6 +21,7 @@ interface ChatMessageProps {
 export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [chartId] = useState(() => `chart-${Math.random().toString(36).slice(2, 10)}`);
   const chartSpec = metadata?.chart_spec;
   const isUpload = metadata?.type === "upload";
 
@@ -77,7 +78,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
               <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
                 <button
                   onClick={() => {
-                    const wrapper = document.getElementById(`chart-inline-${content?.slice(0, 8) || "x"}`);
+                    const wrapper = document.getElementById(chartId);
                     const plotEl = wrapper?.querySelector(".js-plotly-plot");
                     if (plotEl) {
                       const Plotly = (window as any).Plotly;
@@ -104,7 +105,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
                   <Maximize2 className="w-4 h-4" />
                 </button>
               </div>
-              <div id={`chart-inline-${content?.slice(0, 8) || "x"}`}>
+              <div id={chartId}>
                 <Plot
                   data={chartSpec.data as any}
                   layout={{ ...chartLayout, height: 350 }}
@@ -145,7 +146,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
                 onClick={() => {
-                  const wrapper = document.getElementById("chart-fullscreen");
+                  const wrapper = document.getElementById(`${chartId}-fs`);
                   const plotEl = wrapper?.querySelector(".js-plotly-plot");
                   if (plotEl) {
                     const Plotly = (window as any).Plotly;
@@ -172,7 +173,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div id="chart-fullscreen" style={{ width: "100%", height: "100%" }}>
+            <div id={`${chartId}-fs`} style={{ width: "100%", height: "100%" }}>
               <Plot
                 data={chartSpec.data as any}
                 layout={{
