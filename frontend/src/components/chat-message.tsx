@@ -121,7 +121,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
                 onClick={() => {
-                  const plotEl = document.querySelector(".js-plotly-plot") as any;
+                  const plotEl = fullscreenPlotRef.current?.el;
                   if (plotEl) {
                     const Plotly = (window as any).Plotly;
                     if (Plotly) {
@@ -148,6 +148,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
               </button>
             </div>
             <Plot
+              ref={fullscreenPlotRef}
               data={chartSpec.data as any}
               layout={{
                 ...chartLayout,
