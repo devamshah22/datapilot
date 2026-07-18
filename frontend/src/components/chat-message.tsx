@@ -1,6 +1,7 @@
 "use client";
 
-import { User, Bot } from "lucide-react";
+import { useState } from "react";
+import { User, Bot, Copy, Check } from "lucide-react";
 import dynamic from "next/dynamic";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -18,12 +19,19 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
+  const [copied, setCopied] = useState(false);
   const chartSpec = metadata?.chart_spec;
   const isUpload = metadata?.type === "upload";
 
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div
-      className={`flex gap-3 p-4 ${
+      className={`group flex gap-3 p-4 ${
         role === "user" ? "bg-muted/50" : "bg-background"
       }`}
     >
@@ -65,6 +73,21 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
           </div>
         )}
       </div>
+
+      {/* Copy button — appears on hover */}
+      {content && !isUpload && (
+        <button
+          onClick={handleCopy}
+          className="flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+          aria-label="Copy to clipboard"
+        >
+          {copied ? (
+            <Check className="w-3.5 h-3.5 text-green-500" />
+          ) : (
+            <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+        </button>
+      )}
     </div>
   );
 }

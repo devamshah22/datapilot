@@ -2,7 +2,6 @@
 
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { SessionListItem } from "@/lib/api";
 
@@ -42,7 +41,7 @@ export function Sidebar({
       </div>
 
       {/* Session list */}
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto">
         <div className="p-2 space-y-1">
           {sessions.map((s) => (
             <div
@@ -71,7 +70,7 @@ export function Sidebar({
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Footer */}
       <div className="p-3 border-t text-xs text-muted-foreground text-center">
