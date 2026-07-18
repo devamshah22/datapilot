@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { User, Bot, Copy, Check, Maximize2, X } from "lucide-react";
+import { useState, useRef } from "react";
+import { User, Bot, Copy, Check, Maximize2, X, Download } from "lucide-react";
 import dynamic from "next/dynamic";
 
 const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
@@ -21,6 +21,7 @@ interface ChatMessageProps {
 export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenPlotRef = useRef<any>(null);
   const chartSpec = metadata?.chart_spec;
   const isUpload = metadata?.type === "upload";
 
@@ -117,13 +118,35 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             className="w-full h-full max-w-6xl max-h-[85vh] relative"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => setFullscreen(false)}
-              className="absolute top-2 right-2 z-10 p-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
-              aria-label="Close fullscreen"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="absolute top-2 right-2 z-10 flex gap-2">
+              <button
+                onClick={() => {
+                  const plotEl = document.querySelector(".js-plotly-plot") as any;
+                  if (plotEl) {
+                    const Plotly = (window as any).Plotly;
+                    if (Plotly) {
+                      Plotly.downloadImage(plotEl, {
+                        format: "png",
+                        width: 1200,
+                        height: 800,
+                        filename: "datapilot-chart",
+                      });
+                    }
+                  }
+                }}
+                className="p-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                aria-label="Download chart"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setFullscreen(false)}
+                className="p-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                aria-label="Close fullscreen"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
             <Plot
               data={chartSpec.data as any}
               layout={{
@@ -131,7 +154,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
                 height: undefined,
                 margin: { l: 80, r: 40, t: 60, b: 120 },
               }}
-              config={{ displayModeBar: true, displaylogo: false, responsive: true }}
+              config={{ displayModeBar: false, displaylogo: false, responsive: true }}
               style={{ width: "100%", height: "100%" }}
               useResizeHandler
             />
