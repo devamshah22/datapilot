@@ -77,7 +77,8 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
               <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
                 <button
                   onClick={() => {
-                    const plotEl = document.getElementById(`chart-inline-${content?.slice(0, 8) || "x"}`);
+                    const wrapper = document.getElementById(`chart-inline-${content?.slice(0, 8) || "x"}`);
+                    const plotEl = wrapper?.querySelector(".js-plotly-plot");
                     if (plotEl) {
                       const Plotly = (window as any).Plotly;
                       if (Plotly) {
@@ -144,7 +145,8 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
                 onClick={() => {
-                  const plotEl = document.getElementById("chart-fullscreen");
+                  const wrapper = document.getElementById("chart-fullscreen");
+                  const plotEl = wrapper?.querySelector(".js-plotly-plot");
                   if (plotEl) {
                     const Plotly = (window as any).Plotly;
                     if (Plotly) {
