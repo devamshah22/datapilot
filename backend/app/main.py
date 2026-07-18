@@ -13,8 +13,9 @@ Safety:
     - Mutating SQL is rejected at the tool layer
 """
 import logging
+from datetime import datetime, timezone
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -24,6 +25,11 @@ from app.agent.graph import record_query_after_run, run_agent
 from app.config import settings
 from app.schemas import AskRequest, AskResponse, MessageOut, SessionDetail, SessionListItem
 from app.session import SupabaseBackend, get_session_store
+from app.tools.dataset_manager import (
+    MemoryBudgetExceeded,
+    get_dataset_manager,
+)
+from app.tools.ingest import IngestionError, IngestedFile, MAX_FILES_PER_BATCH, validate_and_convert
 from app.tools.sql import get_sql_tool
 
 logging.basicConfig(
@@ -130,6 +136,93 @@ def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
         validation_failure=final.get("validation_failure") or None,
         error=final.get("error") or None,
     )
+
+
+@app.post("/sessions/{sid}/upload")
+@limiter.limit(settings.rate_limit_ask)
+def upload_files(
+    request: Request,
+    sid: str,
+    files: list[UploadFile] = File(...),
+) -> dict:
+    """Upload CSV/Excel files to a session. Converts to Parquet on ingest.
+
+    - Max 5 files per batch
+    - Max 10 MB per file
+    - Files are losslessly compressed to Parquet
+    - Each file becomes a queryable table in the session's DuckDB
+    """
+    if len(files) > MAX_FILES_PER_BATCH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Max {MAX_FILES_PER_BATCH} files per upload. Got {len(files)}.",
+        )
+
+    # Ensure the session exists in the session store
+    store = get_session_store()
+    store.get_or_create(sid)
+
+    # Set up parquet output directory
+    from pathlib import Path
+    parquet_dir = Path(settings.dataset_path).parent.parent / "uploads" / sid
+    mgr = get_dataset_manager()
+    mgr.get_or_create(sid, parquet_dir)
+
+    results = []
+    errors = []
+
+    for upload in files:
+        try:
+            ds = mgr.get(sid)
+            ingested = validate_and_convert(
+                filename=upload.filename or "unknown.csv",
+                file_data=upload.file,
+                output_dir=parquet_dir,
+                existing_table_names=ds.table_names if ds else [],
+            )
+            mgr.add_file(sid, ingested)
+            results.append({
+                "filename": ingested.original_filename,
+                "table_name": ingested.table_name,
+                "rows": ingested.row_count,
+                "columns": ingested.columns,
+                "parquet_size_kb": round(ingested.size_bytes / 1024, 1),
+            })
+        except IngestionError as e:
+            errors.append({"filename": upload.filename, "error": str(e)})
+        except MemoryBudgetExceeded as e:
+            errors.append({"filename": upload.filename, "error": str(e)})
+            break  # No point trying more files if budget is hit
+
+    status = "ok" if not errors else ("partial" if results else "failed")
+    return {
+        "status": status,
+        "session_id": sid,
+        "uploaded": results,
+        "errors": errors,
+    }
+
+
+@app.get("/sessions/{sid}/tables")
+@limiter.limit(settings.rate_limit_default)
+def list_tables(request: Request, sid: str) -> dict:
+    """List tables available in a session's dataset."""
+    mgr = get_dataset_manager()
+    ds = mgr.get(sid)
+    if ds is None or not ds.files:
+        return {"session_id": sid, "tables": []}
+    return {
+        "session_id": sid,
+        "tables": [
+            {
+                "table_name": f.table_name,
+                "filename": f.original_filename,
+                "rows": f.row_count,
+                "columns": f.columns,
+            }
+            for f in ds.files
+        ],
+    }
 
 
 @app.get("/sessions", response_model=list[SessionListItem])
