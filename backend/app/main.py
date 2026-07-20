@@ -96,7 +96,10 @@ def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
         final, session_id = run_agent(req.question, session_id=req.session_id)
     except Exception as e:  # noqa: BLE001
         logger.exception("Agent crashed")
-        raise HTTPException(status_code=500, detail=f"Agent error: {e}") from e
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong processing your request. Please try again.",
+        ) from e
 
     # Record into agent memory (for follow-up prompt context)
     record_query_after_run(session_id, final)

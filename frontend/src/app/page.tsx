@@ -115,7 +115,7 @@ export default function ChatPage() {
     } catch (err) {
       const errorMsg: LocalMessage = {
         role: "assistant",
-        content: `Error: ${err instanceof Error ? err.message : "Something went wrong"}`,
+        content: "Something went wrong. Please try again or rephrase your question.",
         metadata: {},
       };
       setMessages((prev) => [...prev, errorMsg]);
