@@ -176,6 +176,44 @@ def _strip_fences(text: str) -> str:
     return _FENCE_RE.sub("", text).strip()
 
 
+# --- Helpers for error composition ------------------------------------------
+
+
+def _compose_error_explanation(state: AgentState) -> str:
+    """Ask the LLM to explain what went wrong in a user-friendly way.
+
+    The LLM has full context: the question, the schema (what data exists),
+    and the error. It can generate a much better explanation than any
+    hardcoded message — e.g., 'Your file doesn't have an orders column.
+    The available columns are: Product, Price, Category. Try asking about those.'
+    """
+    question = state.get("question", "")
+    schema = state.get("schema", "")
+    error = state.get("error", "") or state.get("validation_failure", "")
+
+    llm = _get_llm()
+    prompt = (
+        f"The user asked: \"{question}\"\n\n"
+        f"Available data schema:\n{schema}\n\n"
+        f"The query failed with: {error}\n\n"
+        "Write a SHORT (1-3 sentences), friendly response explaining to the user "
+        "why their question couldn't be answered. Be specific — mention what "
+        "columns or data actually exist so they can rephrase. Do NOT expose "
+        "technical SQL errors, table names, or internal details. "
+        "Do NOT apologize excessively. Just be helpful and direct."
+    )
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content="You are a helpful data assistant explaining to a user why their question couldn't be answered with their uploaded data."),
+            HumanMessage(content=prompt),
+        ])
+        return response.content if isinstance(response.content, str) else str(response.content)
+    except Exception:
+        # If LLM call itself fails, fall back to a simple generic message
+        return "I couldn't answer that question with your current data. Try rephrasing, or check that the right file is uploaded."
+
+
 # --- Nodes -----------------------------------------------------------------
 
 
@@ -308,27 +346,12 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     # SQL or count the retries — that's debug info, surfaced via the API
     # `previous_attempts` field instead.
     if state.get("error"):
-        error_text = state.get("error", "")
-        # Provide context-aware error messages based on what actually went wrong
-        if "No data available" in error_text:
-            return {"answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file first."}
-        elif "column" in error_text.lower() or "not found" in error_text.lower() or "binder" in error_text.lower():
-            return {"answer": "I couldn't find the columns needed to answer that question in your uploaded data. Try asking about the columns that exist in your file, or rephrase your question."}
-        elif "table" in error_text.lower():
-            return {"answer": "I couldn't find the right table to answer that. Make sure you've uploaded the relevant file in this chat session."}
-        else:
-            return {"answer": "I couldn't answer that question with your current data. Try rephrasing, or check that the right file is uploaded."}
+        # Let the LLM compose a helpful, context-aware error explanation
+        return {"answer": _compose_error_explanation(state)}
 
-    # Validation failure with retries exhausted. Same principle: tell the
-    # user something went wrong without exposing the agent's process.
+    # Validation failure with retries exhausted.
     if state.get("validation_failure"):
-        return {
-            "answer": (
-                "I produced a query but the result didn't look right. "
-                "Try rephrasing your question — for example, be more specific "
-                "about the time range, filter, or metric you mean."
-            )
-        }
+        return {"answer": _compose_error_explanation(state)}
 
     # Python route — answer comes from python_output
     if route == "python":

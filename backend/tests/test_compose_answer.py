@@ -27,21 +27,21 @@ def test_refuse_returns_route_reason_text() -> None:
 
 
 def test_sql_error_says_sql_failed() -> None:
-    """When all retries are exhausted, user gets a clean message — NOT raw
-    SQL or attempt counts. The retry data lives in the API response."""
+    """When all retries are exhausted, user gets a helpful LLM-generated
+    message. It should NOT expose raw SQL or internal error traces."""
     state = {
         "route": "sql",
         "error": "syntax error near 'FROM'",
         "sql": "SELECT FROM orders",
+        "schema": "Table: products (10 rows)\nColumns:\n  - name: VARCHAR\n  - price: DOUBLE",
+        "question": "how many orders were there?",
         "previous_attempts": [{"sql": "SELECT FROM orders", "error": "syntax error near 'FROM'"}],
     }
     out = compose_answer_node(state)
-    # User-facing answer should be helpful but not leak internals.
-    assert "couldn't produce" in out["answer"].lower()
-    # No raw SQL, no attempt count, no error trace.
-    assert "syntax error" not in out["answer"]
-    assert "SELECT FROM orders" not in out["answer"]
-    assert "attempt" not in out["answer"].lower()
+    # LLM-generated response — just verify it's helpful, not empty, and doesn't leak internals
+    assert len(out["answer"]) > 10  # non-trivial response
+    assert "SELECT FROM orders" not in out["answer"]  # no raw SQL
+    assert "syntax error" not in out["answer"].lower()  # no raw error
 
 
 def test_chart_error_with_successful_sql_shows_data_not_sql_failure() -> None:
