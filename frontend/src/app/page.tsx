@@ -57,8 +57,16 @@ export default function ChatPage() {
           metadata: m.metadata || {},
         }))
       );
-    } catch {
-      setMessages([]);
+    } catch (err) {
+      setMessages([
+        {
+          role: "assistant",
+          content: `Couldn't load chat history: ${
+            err instanceof Error ? err.message : "backend unreachable"
+          }. Is the backend running?`,
+          metadata: {},
+        },
+      ]);
     }
   }
 
