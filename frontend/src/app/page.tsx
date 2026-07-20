@@ -178,7 +178,7 @@ export default function ChatPage() {
       />
 
       {/* Main chat area — flex column, own scroll */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
         {/* Messages — scrollable independently */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto">
@@ -209,13 +209,15 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Input — pinned to bottom */}
-        <ChatInput
-          onSend={handleSend}
-          onUpload={handleUpload}
-          loading={loading}
-          disabled={loading}
-        />
+        {/* Input — pinned to bottom, centered when no messages */}
+        <div className={messages.length === 0 ? "absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 w-full max-w-3xl px-4" : ""}>
+          <ChatInput
+            onSend={handleSend}
+            onUpload={handleUpload}
+            loading={loading}
+            disabled={loading}
+          />
+        </div>
       </div>
     </div>
   );
