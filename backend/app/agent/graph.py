@@ -42,7 +42,6 @@ from app.agent.state import AgentState
 from app.agent.validator import validator_node
 from app.config import settings
 from app.session import get_session_store, render_session_context
-from app.tools.sql import get_sql_tool
 
 
 def decide_after_validator(state: AgentState) -> str:
@@ -144,8 +143,8 @@ def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState,
         # User has uploaded data — use their schema
         schema = ds.schema_summary()
     else:
-        # No uploads — fall back to the global Olist dev dataset
-        schema = get_sql_tool().schema_summary()
+        # No uploads — tell the agent there's no data yet
+        schema = "(no data uploaded yet — ask the user to upload a CSV or Excel file first)"
 
     initial: AgentState = {
         "question": question,

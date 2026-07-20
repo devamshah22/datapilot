@@ -24,7 +24,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agent.state import AgentState
 from app.llm import get_chat_llm
-from app.tools.sql import get_sql_tool
 
 logger = logging.getLogger(__name__)
 
@@ -274,31 +273,12 @@ def execute_sql_node(state: AgentState) -> dict[str, Any]:
             "error": "",
         }
     else:
-        # Fallback: global Olist dev dataset
-        tool = get_sql_tool()
-        result = tool.execute(sql)
-
-        if not result.ok:
-            logger.warning("SQL execution failed: %s", result.error)
-            attempts = list(state.get("previous_attempts", []))
-            attempts.append({"sql": sql, "error": result.error or "unknown error"})
-            return {
-                "error": result.error or "unknown error",
-                "rows": [],
-                "columns": [],
-                "row_count": 0,
-                "previous_attempts": attempts,
-            }
-
-        df = result.dataframe
-        assert df is not None
-        cleaned = _clean_dataframe(df)
-        rows = _sanitize_records(cleaned.head(50).to_dict(orient="records"))
+        # No data uploaded — shouldn't reach here (router should clarify)
         return {
-            "columns": result.columns,
-            "rows": rows,
-            "row_count": len(cleaned),
-            "error": "",
+            "error": "No data available. Please upload a CSV or Excel file first.",
+            "rows": [],
+            "columns": [],
+            "row_count": 0,
         }
 
 

@@ -74,8 +74,8 @@ def test_viz_with_chart_spec_describes_chart() -> None:
         "chart_spec": {"data": [{"type": "scatter"}], "layout": {"title": "X"}},
     }
     out = compose_answer_node(state)
-    assert "chart" in out["answer"].lower()
-    assert "1 rows" in out["answer"]
+    # Chart-only response — answer is empty (chart speaks for itself)
+    assert out["answer"] == ""
 
 
 def test_sql_scalar_result() -> None:
