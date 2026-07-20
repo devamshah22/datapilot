@@ -147,13 +147,18 @@ def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState,
         # User has uploaded data — use their schema
         schema = ds.schema_summary()
     else:
-        # No uploads — don't even call the LLM; return helpful response directly
-        return {
-            "question": question,
-            "route": "clarify",
-            "route_reason": "No data uploaded yet.",
-            "answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file using the + button, then ask your question.",
-        }, session.session_id
+        # Check if files exist in Supabase Storage and restore them
+        ds = _try_restore_from_storage(session.session_id, mgr)
+        if ds and ds.files:
+            schema = ds.schema_summary()
+        else:
+            # No uploads — don't even call the LLM; return helpful response directly
+            return {
+                "question": question,
+                "route": "clarify",
+                "route_reason": "No data uploaded yet.",
+                "answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file using the + button, then ask your question.",
+            }, session.session_id
 
     initial: AgentState = {
         "question": question,
@@ -189,6 +194,70 @@ def record_query_after_run(session_id: str, final: AgentState) -> None:
         sample_rows=final.get("rows", [])[:3],
     )
     get_session_store().record_query(session_id, memory)
+
+
+def _try_restore_from_storage(session_id: str, mgr) -> "SessionDataset | None":
+    """Attempt to restore a session's uploaded files from Supabase Storage.
+
+    Called when the DatasetManager doesn't have the session in memory
+    (e.g., after a server restart or idle eviction). Downloads Parquet files
+    from Supabase Storage and re-registers them with the DatasetManager.
+    """
+    from pathlib import Path
+    from app.tools.dataset_manager import SessionDataset
+    from app.tools.ingest import IngestedFile
+    import duckdb
+
+    try:
+        from app.tools.file_storage import _get_storage, BUCKET_NAME
+
+        storage = _get_storage()
+        files = storage.from_(BUCKET_NAME).list(session_id)
+        if not files:
+            return None
+
+        parquet_dir = Path(settings.dataset_path).parent.parent / "uploads" / session_id
+        parquet_dir.mkdir(parents=True, exist_ok=True)
+
+        ds = mgr.get_or_create(session_id, parquet_dir)
+
+        for f in files:
+            if not f["name"].endswith(".parquet"):
+                continue
+            table_name = f["name"].replace(".parquet", "")
+            local_path = parquet_dir / f["name"]
+
+            # Download if not already local
+            if not local_path.exists():
+                from app.tools.file_storage import download_parquet
+                download_parquet(session_id, table_name, parquet_dir)
+
+            # Get metadata from the parquet file
+            con = duckdb.connect(":memory:")
+            cols = con.execute(
+                f"SELECT * FROM read_parquet('{local_path.as_posix()}') LIMIT 0"
+            ).description
+            row_count = con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{local_path.as_posix()}')"
+            ).fetchone()[0]
+            con.close()
+
+            ingested = IngestedFile(
+                original_filename=f"{table_name}.parquet",
+                table_name=table_name,
+                parquet_path=local_path,
+                columns=[c[0] for c in cols],
+                dtypes={c[0]: str(c[1]) for c in cols},
+                row_count=row_count,
+                size_bytes=local_path.stat().st_size,
+            )
+            ds.add_file(ingested)
+
+        return ds if ds.files else None
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to restore from storage: %s", e)
+        return None
 
 
 # Cache the compiled graph so we don't rebuild on every request.

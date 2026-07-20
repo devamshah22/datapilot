@@ -30,7 +30,6 @@ from app.tools.dataset_manager import (
     get_dataset_manager,
 )
 from app.tools.ingest import IngestionError, IngestedFile, MAX_FILES_PER_BATCH, validate_and_convert
-from app.tools.sql import get_sql_tool
 
 logging.basicConfig(
     level=settings.log_level,
@@ -64,14 +63,17 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _warm_up() -> None:
-    tool = get_sql_tool()
-    logger.info("Dataset loaded from %s", tool.csv_path)
-    logger.info("Table: %s", tool.table_name)
     logger.info(
         "Rate limits: default=%s, /ask=%s",
         settings.rate_limit_default,
         settings.rate_limit_ask,
     )
+    # Ensure Supabase Storage bucket exists
+    try:
+        from app.tools.file_storage import ensure_bucket_exists
+        ensure_bucket_exists()
+    except Exception as e:
+        logger.warning("Could not ensure storage bucket: %s", e)
 
 
 # --- Endpoints --------------------------------------------------------------
@@ -184,6 +186,12 @@ def upload_files(
                 existing_table_names=ds.table_names if ds else [],
             )
             mgr.add_file(sid, ingested)
+            # Persist to Supabase Storage for cross-restart survival
+            try:
+                from app.tools.file_storage import upload_parquet
+                upload_parquet(sid, ingested.table_name, ingested.parquet_path)
+            except Exception as e:
+                logger.warning("Failed to persist %s to storage: %s", ingested.table_name, e)
             results.append({
                 "filename": ingested.original_filename,
                 "table_name": ingested.table_name,
