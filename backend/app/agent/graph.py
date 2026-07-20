@@ -143,8 +143,13 @@ def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState,
         # User has uploaded data — use their schema
         schema = ds.schema_summary()
     else:
-        # No uploads — tell the agent there's no data yet
-        schema = "(no data uploaded yet — ask the user to upload a CSV or Excel file first)"
+        # No uploads — don't even call the LLM; return helpful response directly
+        return {
+            "question": question,
+            "route": "clarify",
+            "route_reason": "No data uploaded yet.",
+            "answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file using the + button, then ask your question.",
+        }, session.session_id
 
     initial: AgentState = {
         "question": question,

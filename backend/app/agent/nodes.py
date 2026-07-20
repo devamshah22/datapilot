@@ -308,12 +308,16 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     # SQL or count the retries — that's debug info, surfaced via the API
     # `previous_attempts` field instead.
     if state.get("error"):
-        return {
-            "answer": (
-                "I couldn't produce a working query for that question. "
-                "Try rephrasing, or ask about a metric or column listed in the schema."
-            )
-        }
+        error_text = state.get("error", "")
+        # Provide context-aware error messages based on what actually went wrong
+        if "No data available" in error_text:
+            return {"answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file first."}
+        elif "column" in error_text.lower() or "not found" in error_text.lower() or "binder" in error_text.lower():
+            return {"answer": "I couldn't find the columns needed to answer that question in your uploaded data. Try asking about the columns that exist in your file, or rephrase your question."}
+        elif "table" in error_text.lower():
+            return {"answer": "I couldn't find the right table to answer that. Make sure you've uploaded the relevant file in this chat session."}
+        else:
+            return {"answer": "I couldn't answer that question with your current data. Try rephrasing, or check that the right file is uploaded."}
 
     # Validation failure with retries exhausted. Same principle: tell the
     # user something went wrong without exposing the agent's process.
