@@ -11,7 +11,7 @@ class AskRequest(BaseModel):
     session_id: str | None = Field(default=None, max_length=64)
 
 
-Route = Literal["sql", "viz", "python", "clarify", "refuse"]
+Route = Literal["sql", "viz", "python", "chat", "clarify", "refuse"]
 
 
 class MessageOut(BaseModel):

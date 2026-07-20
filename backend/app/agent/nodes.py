@@ -341,6 +341,10 @@ def compose_answer_node(state: AgentState) -> dict[str, Any]:
     if route == "refuse":
         return {"answer": state.get("route_reason", "I can't answer that with this data.")}
 
+    # Chat route: answer already set by chat_node
+    if route == "chat":
+        return {"answer": state.get("answer", "")}
+
     # SQL or viz with an SQL execution error after retries exhausted.
     # We still tell the user the agent failed, but we don't quote the raw
     # SQL or count the retries — that's debug info, surfaced via the API
@@ -452,6 +456,39 @@ def clarify_node(state: AgentState) -> dict[str, Any]:
 def refuse_node(state: AgentState) -> dict[str, Any]:
     """No-op pass-through; refusal text already in route_reason."""
     return {}
+
+
+def chat_node(state: AgentState) -> dict[str, Any]:
+    """Direct LLM response without any tool execution.
+
+    Used for general questions, summaries, explanations, suggestions —
+    anything where the LLM's intelligence is sufficient without running
+    code against the data.
+    """
+    question = state["question"]
+    schema = state.get("schema", "")
+    session_context = state.get("session_context", "")
+
+    llm = _get_llm()
+    prompt = ""
+    if schema:
+        prompt += f"Available data:\n{schema}\n\n"
+    if session_context:
+        prompt += f"{session_context}\n\n"
+    prompt += f"User: {question}"
+
+    response = llm.invoke([
+        SystemMessage(content=(
+            "You are DataPilot, a friendly data analysis assistant. "
+            "Answer the user's question using your knowledge and the data schema provided. "
+            "Be concise, helpful, and direct. If the user asks what they can do, "
+            "suggest specific questions based on the columns in their data. "
+            "Always respond in English."
+        )),
+        HumanMessage(content=prompt),
+    ])
+    answer = response.content if isinstance(response.content, str) else str(response.content)
+    return {"answer": answer}
 
 
 # --- Python tool nodes -------------------------------------------------------

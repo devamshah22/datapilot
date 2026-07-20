@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-Route = Literal["sql", "viz", "python", "clarify", "refuse"]
+Route = Literal["sql", "viz", "python", "chat", "clarify", "refuse"]
 
 
 class AttemptRecord(TypedDict):

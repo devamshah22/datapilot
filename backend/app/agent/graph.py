@@ -28,6 +28,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.nodes import (
+    chat_node,
     clarify_node,
     compose_answer_node,
     execute_python_node,
@@ -73,6 +74,7 @@ def build_graph():
     builder.add_node("make_chart", make_chart_node)
     builder.add_node("write_python", write_python_node)
     builder.add_node("execute_python", execute_python_node)
+    builder.add_node("chat_node", chat_node)
     builder.add_node("clarify_node", clarify_node)
     builder.add_node("refuse_node", refuse_node)
     builder.add_node("compose_answer", compose_answer_node)
@@ -87,6 +89,7 @@ def build_graph():
             "sql": "write_sql",
             "viz": "write_sql",
             "python": "write_python",
+            "chat": "chat_node",
             "clarify": "clarify_node",
             "refuse": "refuse_node",
         },
@@ -110,7 +113,8 @@ def build_graph():
     builder.add_edge("write_python", "execute_python")
     builder.add_edge("execute_python", "compose_answer")
 
-    # Clarify / refuse paths bypass everything
+    # Chat / Clarify / refuse paths bypass tools entirely
+    builder.add_edge("chat_node", "compose_answer")
     builder.add_edge("clarify_node", "compose_answer")
     builder.add_edge("refuse_node", "compose_answer")
 
