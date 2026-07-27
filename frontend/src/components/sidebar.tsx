@@ -1,6 +1,7 @@
 "use client";
 
-import { Plus, Trash2, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import { Plus, Trash2, MessageSquare, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { SessionListItem } from "@/lib/api";
@@ -24,6 +25,9 @@ export function Sidebar({
   onSignOut,
   userEmail,
 }: SidebarProps) {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const initial = userEmail ? userEmail[0].toUpperCase() : "?";
+
   return (
     <div className="w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden">
       {/* Header */}
@@ -76,15 +80,34 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-3 border-t space-y-2">
-        {userEmail && (
-          <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
-        )}
-        {onSignOut && (
-          <Button variant="ghost" size="sm" className="w-full text-xs" onClick={onSignOut}>
-            Sign out
-          </Button>
+      {/* Footer — user avatar */}
+      <div className="p-3 border-t relative">
+        <button
+          onClick={() => setShowUserMenu(!showUserMenu)}
+          className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 hover:bg-muted transition-colors"
+        >
+          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+            <span className="text-sm font-medium text-primary-foreground">{initial}</span>
+          </div>
+          <span className="text-xs text-muted-foreground truncate flex-1 text-left">
+            {userEmail || "User"}
+          </span>
+        </button>
+
+        {/* Dropdown menu */}
+        {showUserMenu && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 rounded-md border bg-popover p-1 shadow-md">
+            <p className="px-2 py-1.5 text-xs text-muted-foreground truncate">
+              {userEmail}
+            </p>
+            <button
+              onClick={() => { setShowUserMenu(false); onSignOut?.(); }}
+              className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-muted transition-colors text-destructive"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign out
+            </button>
+          </div>
         )}
       </div>
     </div>
