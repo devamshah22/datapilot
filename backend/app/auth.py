@@ -1,13 +1,7 @@
 """Authentication middleware using Supabase Auth JWT tokens.
 
-Flow:
-  1. Frontend logs user in via Supabase Auth (email/password or OAuth)
-  2. Frontend sends the access_token in Authorization header on every request
-  3. This middleware validates the JWT and extracts user_id
-  4. user_id is attached to the request state for downstream use
-  5. Unauthenticated requests get 401
-
-Public endpoints (no auth required): /health, /docs, /openapi.json, /redoc
+Supports both HS256 (legacy shared secret) and ES256 (new ECC keys).
+For ES256, fetches the public key from Supabase's JWKS endpoint.
 """
 from __future__ import annotations
 
@@ -15,6 +9,7 @@ import logging
 from typing import Optional
 
 import jwt
+from jwt import PyJWKClient
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -25,6 +20,17 @@ logger = logging.getLogger(__name__)
 
 # Endpoints that don't require authentication
 PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc", "/docs/oauth2-redirect"}
+
+# JWKS client for ES256 verification (cached)
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_client
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -66,21 +72,41 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 def _validate_token(token: str) -> Optional[str]:
-    """Validate a Supabase JWT and return the user_id (sub claim)."""
+    """Validate a Supabase JWT and return the user_id (sub claim).
+
+    Tries ES256 (JWKS) first, then falls back to HS256 (shared secret).
+    """
+    # Try ES256 via JWKS
     try:
+        jwks_client = _get_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["ES256"],
             audience="authenticated",
         )
         user_id = payload.get("sub")
-        if not user_id:
+        return user_id if user_id else None
+    except Exception as e:
+        logger.debug("ES256 validation failed: %s", e)
+
+    # Fallback: try HS256 with shared secret
+    if settings.supabase_jwt_secret:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience="authenticated",
+            )
+            user_id = payload.get("sub")
+            return user_id if user_id else None
+        except jwt.ExpiredSignatureError:
+            logger.debug("Token expired (HS256)")
             return None
-        return user_id
-    except jwt.ExpiredSignatureError:
-        logger.debug("Token expired")
-        return None
-    except jwt.InvalidTokenError as e:
-        logger.debug("Invalid token: %s", e)
-        return None
+        except jwt.InvalidTokenError as e:
+            logger.debug("HS256 validation failed: %s", e)
+
+    logger.warning("Token validation failed with all methods")
+    return None
