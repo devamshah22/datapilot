@@ -171,18 +171,22 @@ class SupabaseBackend:
             recent_queries=queries,
         )
 
-    def save(self, session: Session) -> None:
+    def save(self, session: Session, user_id: str | None = None) -> None:
         from datetime import datetime, timezone
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
         # Upsert session row
-        self._client.table("sessions").upsert({
+        row = {
             "id": session.session_id,
             "title": session.recent_queries[0].question if session.recent_queries else None,
             "created_at": datetime.fromtimestamp(session.created_at, tz=timezone.utc).isoformat(),
             "last_accessed_at": now_iso,
-        }).execute()
+        }
+        if user_id:
+            row["user_id"] = user_id
+
+        self._client.table("sessions").upsert(row).execute()
 
         # Replace query memories: delete old, insert new
         self._client.table("query_memories").delete().eq(
@@ -230,14 +234,16 @@ class SupabaseBackend:
         )
         return res.data or []
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        res = (
+    def list_sessions(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        query = (
             self._client.table("sessions")
             .select("id, title, created_at, last_accessed_at")
             .order("last_accessed_at", desc=True)
             .limit(50)
-            .execute()
         )
+        if user_id:
+            query = query.eq("user_id", user_id)
+        res = query.execute()
         return res.data or []
 
 
@@ -261,7 +267,7 @@ class SessionStore:
             backend if backend is not None else _build_default_backend()
         )
 
-    def get_or_create(self, session_id: str | None) -> Session:
+    def get_or_create(self, session_id: str | None, user_id: str | None = None) -> Session:
         if session_id:
             existing = self._backend.get(session_id)
             if existing is not None:
@@ -272,7 +278,11 @@ class SessionStore:
         new_id = session_id or uuid.uuid4().hex
         now = time.time()
         s = Session(session_id=new_id, created_at=now, last_accessed_at=now)
-        self._backend.save(s)
+        # Store user_id for ownership filtering
+        if user_id and isinstance(self._backend, SupabaseBackend):
+            self._backend.save(s, user_id=user_id)
+        else:
+            self._backend.save(s)
         return s
 
     def record_query(self, session_id: str, memory: QueryMemory) -> None:

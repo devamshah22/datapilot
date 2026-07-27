@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = Field(default=0, alias="SESSION_TTL_SECONDS")
     supabase_url: str | None = Field(default=None, alias="SUPABASE_URL")
     supabase_key: str | None = Field(default=None, alias="SUPABASE_KEY")
+    supabase_jwt_secret: str | None = Field(default=None, alias="SUPABASE_JWT_SECRET")
 
     # --- Safety limits ---
     sql_timeout_seconds: float = Field(default=10.0, alias="SQL_TIMEOUT_SECONDS")

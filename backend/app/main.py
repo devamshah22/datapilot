@@ -22,6 +22,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.agent.graph import record_query_after_run, run_agent
+from app.auth import AuthMiddleware
 from app.config import settings
 from app.schemas import AskRequest, AskResponse, MessageOut, SessionDetail, SessionListItem
 from app.session import SupabaseBackend, get_session_store
@@ -52,10 +53,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Auth middleware — validates JWT, attaches user_id to request.state
+# Added AFTER CORS so preflight OPTIONS requests pass through.
+app.add_middleware(AuthMiddleware)
 
 
 # --- Lifecycle --------------------------------------------------------------
@@ -94,8 +99,9 @@ def schema(request: Request) -> dict[str, str]:
 @app.post("/ask", response_model=AskResponse)
 @limiter.limit(settings.rate_limit_ask)
 def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
+    user_id = request.state.user_id
     try:
-        final, session_id = run_agent(req.question, session_id=req.session_id)
+        final, session_id = run_agent(req.question, session_id=req.session_id, user_id=user_id)
     except Exception as e:  # noqa: BLE001
         logger.exception("Agent crashed")
         raise HTTPException(
@@ -164,8 +170,9 @@ def upload_files(
         )
 
     # Ensure the session exists in the session store
+    user_id = request.state.user_id
     store = get_session_store()
-    store.get_or_create(sid)
+    store.get_or_create(sid, user_id=user_id)
 
     # Set up parquet output directory
     from pathlib import Path
@@ -239,12 +246,13 @@ def list_tables(request: Request, sid: str) -> dict:
 @app.get("/sessions", response_model=list[SessionListItem])
 @limiter.limit(settings.rate_limit_default)
 def list_sessions(request: Request) -> list[SessionListItem]:
-    """List recent sessions for the sidebar."""
+    """List recent sessions for the sidebar — filtered by authenticated user."""
+    user_id = request.state.user_id
     store = get_session_store()
     backend = store._backend
     if not isinstance(backend, SupabaseBackend):
         return []
-    rows = backend.list_sessions()
+    rows = backend.list_sessions(user_id=user_id)
     return [
         SessionListItem(
             session_id=r["id"],

@@ -122,20 +122,18 @@ def build_graph():
     return builder.compile()
 
 
-def run_agent(question: str, session_id: str | None = None) -> tuple[AgentState, str]:
+def run_agent(question: str, session_id: str | None = None, user_id: str | None = None) -> tuple[AgentState, str]:
     """Run the agent and return ``(final_state, session_id)``.
 
     Schema source priority:
       1. If the session has uploaded files → use per-session DatasetManager schema
-      2. Otherwise → fall back to the global Olist dev dataset (SQLTool singleton)
-
-    The session id used (existing or freshly minted) is returned so the
-    caller can echo it back to the client.
+      2. Otherwise → try restoring from Supabase Storage
+      3. Otherwise → ask user to upload
     """
     graph = _get_graph()
 
     store = get_session_store()
-    session = store.get_or_create(session_id)
+    session = store.get_or_create(session_id, user_id=user_id)
     context = render_session_context(session)
 
     # Decide which schema + executor to use
