@@ -11,6 +11,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectSession: (sid: string) => void;
   onDeleteSession: (sid: string) => void;
+  onSignOut?: () => void;
+  userEmail?: string;
 }
 
 export function Sidebar({
@@ -19,6 +21,8 @@ export function Sidebar({
   onNewChat,
   onSelectSession,
   onDeleteSession,
+  onSignOut,
+  userEmail,
 }: SidebarProps) {
   return (
     <div className="w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden">
@@ -73,8 +77,15 @@ export function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t text-xs text-muted-foreground text-center">
-        DataPilot v0.5
+      <div className="p-3 border-t space-y-2">
+        {userEmail && (
+          <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+        )}
+        {onSignOut && (
+          <Button variant="ghost" size="sm" className="w-full text-xs" onClick={onSignOut}>
+            Sign out
+          </Button>
+        )}
       </div>
     </div>
   );

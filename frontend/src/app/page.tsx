@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { LoginPage } from "@/components/login-page";
 import { Sidebar } from "@/components/sidebar";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
@@ -21,6 +23,7 @@ interface LocalMessage {
 }
 
 export default function ChatPage() {
+  const { user, loading: authLoading, signOut } = useAuth();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -167,6 +170,14 @@ export default function ChatPage() {
   }
 
   return (
+    <>
+      {authLoading ? (
+        <div className="flex h-screen items-center justify-center">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      ) : !user ? (
+        <LoginPage />
+      ) : (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — fixed, independent scroll */}
       <Sidebar
@@ -175,6 +186,8 @@ export default function ChatPage() {
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
+        onSignOut={signOut}
+        userEmail={user?.email}
       />
 
       {/* Main chat area — flex column, own scroll */}
@@ -220,5 +233,7 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+      )}
+    </>
   );
 }
