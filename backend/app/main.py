@@ -70,6 +70,11 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Auth middleware — validates JWT, attaches user_id to request.state
+app.add_middleware(AuthMiddleware)
+
+# CORS middleware — added LAST so it's the outermost in Starlette's stack.
+# This ensures CORS headers are present on ALL responses, including 401s from auth.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -77,10 +82,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Auth middleware — validates JWT, attaches user_id to request.state
-# Added AFTER CORS so preflight OPTIONS requests pass through.
-app.add_middleware(AuthMiddleware)
 
 
 # --- Lifecycle --------------------------------------------------------------

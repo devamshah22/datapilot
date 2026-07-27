@@ -38,24 +38,31 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Extract token from Authorization header
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid authorization header"},
-            )
+            return self._unauthorized("Missing or invalid authorization header", request)
 
         token = auth_header[len("Bearer "):]
 
         # Validate JWT
         user_id = _validate_token(token)
         if user_id is None:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or expired token"},
-            )
+            return self._unauthorized("Invalid or expired token", request)
 
         # Attach user_id to request state for downstream use
         request.state.user_id = user_id
         return await call_next(request)
+
+    def _unauthorized(self, detail: str, request: Request) -> JSONResponse:
+        """Return a 401 with CORS headers so the browser doesn't block it."""
+        origin = request.headers.get("origin", "")
+        headers = {}
+        if origin:
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Access-Control-Allow-Credentials"] = "true"
+        return JSONResponse(
+            status_code=401,
+            content={"detail": detail},
+            headers=headers,
+        )
 
 
 def _validate_token(token: str) -> Optional[str]:
