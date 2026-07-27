@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_FILES_PER_BATCH = 5
+MAX_ROWS = 500_000  # reject files with more rows than this
+MAX_COLUMNS = 200   # reject files with more columns than this
 
 # Table name sanitization: only allow [a-z0-9_], replace everything else.
 _TABLE_NAME_RE = re.compile(r"[^a-z0-9_]")
@@ -126,6 +128,16 @@ def validate_and_convert(
 
     if len(df) == 0:
         raise IngestionError("File has column headers but zero data rows.")
+
+    if len(df) > MAX_ROWS:
+        raise IngestionError(
+            f"File has {len(df):,} rows, exceeds the {MAX_ROWS:,} row limit."
+        )
+
+    if len(df.columns) > MAX_COLUMNS:
+        raise IngestionError(
+            f"File has {len(df.columns)} columns, exceeds the {MAX_COLUMNS} column limit."
+        )
 
     # --- Derive table name ---
     table_name = _derive_table_name(filename, existing_table_names or [])

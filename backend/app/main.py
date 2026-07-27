@@ -33,14 +33,20 @@ from app.tools.dataset_manager import (
 from app.tools.ingest import IngestionError, IngestedFile, MAX_FILES_PER_BATCH, validate_and_convert
 
 
-def _verify_session_ownership(sid: str, user_id: str) -> None:
-    """Verify the authenticated user owns this session. Raises 403 if not."""
+def _verify_session_ownership(sid: str, user_id: str, allow_creation: bool = False) -> None:
+    """Verify the authenticated user owns this session. Raises 403 if not.
+
+    If allow_creation=True and the session doesn't exist, returns silently
+    (the caller will create it with the correct user_id).
+    """
     store = get_session_store()
     backend = store._backend
     if not isinstance(backend, SupabaseBackend):
         return  # In-memory backend has no user scoping
     res = backend._client.table("sessions").select("user_id").eq("id", sid).execute()
     if not res.data:
+        if allow_creation:
+            return  # Session will be created by the caller
         raise HTTPException(status_code=404, detail="Session not found")
     owner = res.data[0].get("user_id")
     if owner and owner != user_id:
@@ -126,6 +132,9 @@ def schema(request: Request) -> dict[str, str]:
 @limiter.limit(settings.rate_limit_ask)
 def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
     user_id = request.state.user_id
+    # If a session_id is provided, verify the user owns it
+    if req.session_id:
+        _verify_session_ownership(req.session_id, user_id)
     try:
         final, session_id = run_agent(req.question, session_id=req.session_id, user_id=user_id)
     except Exception as e:  # noqa: BLE001
@@ -197,7 +206,7 @@ def upload_files(
 
     # Ensure the session exists in the session store
     user_id = request.state.user_id
-    _verify_session_ownership(sid, user_id)
+    _verify_session_ownership(sid, user_id, allow_creation=True)
     store = get_session_store()
     store.get_or_create(sid, user_id=user_id)
 
@@ -252,6 +261,8 @@ def upload_files(
 @limiter.limit(settings.rate_limit_default)
 def list_tables(request: Request, sid: str) -> dict:
     """List tables available in a session's dataset."""
+    user_id = request.state.user_id
+    _verify_session_ownership(sid, user_id)
     mgr = get_dataset_manager()
     ds = mgr.get(sid)
     if ds is None or not ds.files:
@@ -336,18 +347,23 @@ def delete_session(request: Request, sid: str) -> dict[str, str]:
     if not isinstance(backend, SupabaseBackend):
         raise HTTPException(status_code=404, detail="session storage not available")
 
-    # 1. Delete from database (sessions + messages + query_memories via CASCADE)
-    backend.delete(sid)
-
-    # 2. Delete uploaded files from Supabase Storage
+    # 1. Delete uploaded files from Supabase Storage FIRST (before DB records)
+    storage_error = None
     try:
         from app.tools.file_storage import delete_session_files
         delete_session_files(sid)
     except Exception as e:
-        logger.warning("Failed to delete storage files for %s: %s", sid, e)
+        storage_error = str(e)
+        logger.error("Failed to delete storage files for %s: %s", sid, e)
 
-    # 3. Close in-memory DuckDB connection
+    # 2. Close in-memory DuckDB connection
     mgr = get_dataset_manager()
     mgr.close_session(sid)
+
+    # 3. Delete from database (sessions + messages + query_memories via CASCADE)
+    backend.delete(sid)
+
+    if storage_error:
+        return {"status": "partial", "session_id": sid, "warning": f"Session deleted but file cleanup failed: {storage_error}"}
 
     return {"status": "deleted", "session_id": sid}

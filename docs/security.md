@@ -1,104 +1,102 @@
 # Security model
 
-This document describes what DataPilot defends against, what it does not,
-and the design choices behind those decisions. It exists so that future-you
-(and any reviewer or recruiter) has a clear, written reference instead of
-having to reverse-engineer the threat model from code.
+This document describes DataPilot's security posture as of the current
+implementation. It covers threats, mitigations, and known limitations.
 
-> Status: portfolio project. The security stance is appropriate for a
-> non-authenticated single-tenant analytical service. A production
-> deployment with multi-tenancy, write paths, or sensitive data would
-> need additional controls.
+> **Architecture:** Multi-user SaaS with Supabase Auth (JWT), per-user
+> session scoping, file uploads persisted in Supabase Storage, and
+> LLM-generated code execution in Docker sandboxes.
 
-## What this service is — and isn't
+## Authentication & Authorization
 
-- **Is**: a read-only analytical interface over a single CSV file, exposed
-  via a small FastAPI application. Single tenant. No authentication.
-- **Is not**: a multi-tenant SaaS, an ETL pipeline, or a source-of-truth
-  database front end.
+| Control | Implementation |
+|---------|---------------|
+| Authentication | Supabase Auth JWT validated by backend middleware on every request |
+| Session ownership | `_verify_session_ownership` checks user_id before read/write/delete |
+| RLS (defense-in-depth) | Postgres Row Level Security policies on sessions, messages, query_memories |
+| Public endpoints | Only /health, /docs, /openapi.json, /redoc skip auth |
 
-The threat model below assumes a public deployment that any internet user
-can hit.
+## SQL Execution Safety
 
-## Threats and mitigations
+| Threat | Mitigation |
+|--------|-----------|
+| Mutation (DROP, DELETE, INSERT) | First-token check: only SELECT/WITH allowed |
+| Filesystem access (read_csv_auto, read_parquet, etc.) | `sql_sanitizer.py` blocks 20+ dangerous DuckDB functions via regex |
+| Pathological compute | Per-query timeout (10s) via DuckDB `connection.interrupt()` |
+| Result-size DoS | Hard cap of 1000 rows returned |
+| In-memory database | No persistence; restart wipes DuckDB state |
 
-| # | Threat                                                  | Mitigation                                                         | Where                                  |
-| - | ------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------- |
-| 1 | SQL injection via the user's question                   | Question never becomes SQL directly — an LLM mediates with strict, structured prompts | `agent/nodes.py`, `agent/router.py`    |
-| 2 | Mutating SQL (DROP, DELETE, INSERT, UPDATE, ALTER, etc.)| SQL tool rejects anything whose first token is not SELECT or WITH  | `tools/sql.py::SQLTool.execute`        |
-| 3 | Reading arbitrary files via DuckDB (`read_csv`)         | Connection is in-memory; no files are added to the DB at runtime   | `tools/sql.py::SQLTool.__init__`       |
-| 4 | Database persistence attacks                            | DuckDB is `:memory:` — process restart wipes everything            | `tools/sql.py::SQLTool.__init__`       |
-| 5 | Result-size DoS (huge SELECT results)                   | Hard cap of 1000 rows on returned dataframes                       | `tools/sql.py::SQLTool.execute`        |
-| 6 | Question-length DoS                                     | Pydantic `max_length=2000` on the request body                     | `schemas.py::AskRequest`               |
-| 7 | Pathological compute (`SELECT * FROM range(10^12)`)     | Per-query timeout (default 10s) via `connection.interrupt()`       | `tools/sql.py::SQLTool.execute`        |
-| 8 | LLM-quota / API DoS                                     | Per-IP rate limit on `/ask` (default 10/min)                       | `main.py` (slowapi)                    |
-| 9 | Other endpoint DoS                                      | Per-IP rate limit on `/health`, `/schema` (default 60/min)         | `main.py` (slowapi)                    |
-| 10| Cross-origin abuse                                      | CORS allow-list (configurable via `CORS_ALLOWED_ORIGINS`)          | `main.py`                              |
-| 11| Sensitive PII surfacing                                 | Olist data is anonymized to start with; `refuse` route declines PII requests | dataset; `agent/router.py`     |
-| 12| Forecasting / causal claims as "facts"                  | `refuse` route declines and explains                                | `agent/router.py`                      |
+**Note:** The sanitizer is a blocklist. Novel DuckDB functions we haven't
+listed could theoretically bypass it. The structural defense (VIEWs over
+registered Parquet only, no raw file paths in user-facing queries) provides
+a second layer.
 
-## On prompt injection
+## Python Code Execution (Docker Sandbox)
 
-Prompt injection — a user crafting input that gets the LLM to ignore its
-system prompt — is an open research problem. **It cannot be fully prevented
-with text-level filtering.** Our stance is that consequences must be
-constrained even when prompt isolation fails:
+| Control | Setting |
+|---------|---------|
+| Network | `--network=none` |
+| Memory | `--memory=256m` |
+| CPU | `--cpus=1` |
+| PIDs | `--pids-limit=64` |
+| Filesystem | `--read-only` + tmpfs for /tmp (50MB) |
+| Privileges | `--cap-drop=ALL`, `--security-opt=no-new-privileges` |
+| User | Non-root (`sandbox` user inside container) |
+| Timeout | 15s subprocess kill |
+| Import whitelist | Validated before execution; only pandas/numpy/scipy/sklearn/math/datetime |
+| Data mount | Read-only bind mount of session's Parquet files only |
 
-- Tricked LLM produces a `DELETE FROM orders` → SQL tool rejects it (rule 2).
-- Tricked LLM tries to read `/etc/passwd` via DuckDB → no filesystem access (rule 3).
-- Tricked LLM emits nonsense SQL → query fails or returns junk; user gets a bad answer; nothing is breached.
-- Tricked LLM outputs profanity / off-topic text → reputation issue, not a security issue.
+## File Upload Safety
 
-This is the standard mature posture: **defense is structural, not textual.**
+| Control | Limit |
+|---------|-------|
+| File size | 10 MB per file (raw upload bytes) |
+| Rows | 500,000 max |
+| Columns | 200 max |
+| Files per batch | 5 |
+| Global memory budget | 250 MB estimated across all sessions |
+| Idle eviction | DuckDB connections closed after 15 min |
+| Allowed types | .csv, .xlsx, .xls only |
+| Storage persistence | Supabase Storage (private bucket) |
 
-## What we deliberately do NOT do
+## Session & Data Lifecycle
 
-| Decision                                          | Rationale                                                                |
-| ------------------------------------------------- | ------------------------------------------------------------------------ |
-| Regex-based question filtering (block "DROP" etc.)| Easy to bypass, false positives on legitimate questions ("Did orders drop?"), false confidence |
-| LLM-based input filtering ("is this malicious?")  | Adds latency and cost, false negatives, the structural defenses are stronger |
-| Authentication / authorization                    | Out of scope for a single-tenant portfolio service. Add before any deployment with sensitive data |
-| Per-user quotas                                   | No user concept yet. IP-based rate limit is the substitute               |
-| Audit log of every question                       | FastAPI access logs are sufficient for the threat model. Add structured audit if scope grows |
+| Event | What happens |
+|-------|-------------|
+| Upload | CSV/Excel → Parquet locally → Supabase Storage → DuckDB VIEW |
+| Query | DuckDB streams from Parquet on disk (low RAM) |
+| Idle (15 min) | DuckDB connection closed; Parquet stays on disk + storage |
+| Server restart | Parquet re-downloaded from Supabase Storage on next access |
+| Session delete | Storage files deleted FIRST → in-memory closed → DB records cascaded |
+| Partial delete failure | User receives "partial" status; files may be orphaned (logged) |
 
-## Settings reference
+## API Rate Limiting
 
-All safety knobs live in `.env` (or platform env vars). Defaults are
-production-reasonable for a portfolio deployment.
+| Endpoint | Limit |
+|----------|-------|
+| /ask | 10/minute per IP |
+| All others | 60/minute per IP |
+| Backed by | slowapi (in-process); for multi-worker, add Redis |
 
-```
-SQL_TIMEOUT_SECONDS=10
-RATE_LIMIT_ASK=10/minute
-RATE_LIMIT_DEFAULT=60/minute
-CORS_ALLOWED_ORIGINS=*           # comma-separated list, or '*' for any
-MAX_AGENT_RETRIES=3
-```
+## CORS
 
-## What to revisit before any real deployment
+Default: `http://localhost:3000` (explicit origin with credentials).
+Configure via `CORS_ALLOWED_ORIGINS` env var for production domains.
 
-In rough priority order:
+## Known Limitations
 
-1. **Tighten CORS** — replace `*` with the actual frontend origin.
-2. **Authentication** — at minimum, an API key on `/ask` if the service is exposed beyond your local machine.
-3. **Persistent rate-limit backend** — `slowapi` is in-memory; multiple worker processes need Redis-backed limiting (the same Upstash instance used for sessions can host this).
-4. **Structured audit log** — record `(timestamp, ip, question, route, sql)` to a separate log stream.
-5. **Secrets rotation** — Groq / Gemini API keys and Upstash tokens should rotate periodically. Use a secrets manager, not `.env`, in production.
-6. **Output PII scan** — although Olist is anonymized, future datasets may not be. Add a configurable PII scrubber on output.
+1. **SQL sanitizer is a blocklist** — novel DuckDB functions could bypass it
+2. **Rate limiter is in-process** — multiple workers need Redis-backed limiting
+3. **File deletion is best-effort** — storage errors are logged, not retried
+4. **No per-user storage quotas** — global budget only, not per-user
+5. **Docker required for Python tool** — falls back to error if Docker unavailable
 
-## Session storage — security-relevant notes
+## Pre-deployment Checklist
 
-DataPilot supports two session backends, picked by `SESSION_BACKEND`:
-
-| Backend | Persistence | TTL handling | Multi-worker safe |
-| ------- | ----------- | ------------ | ----------------- |
-| `memory` (default in tests) | dies on restart | lazy in-process eviction | no — each worker has its own store |
-| `redis` (Upstash REST) | survives restarts | server-side via `SET ... EX` | yes |
-
-For any deployment with more than one uvicorn worker, use the Redis backend.
-The in-memory option is fine for single-process local dev and unit tests.
-
-The Redis backend stores sessions as JSON under keys like `session:{uuid}`.
-Session data contains the user's question, the SQL the agent generated, and
-a tiny sample of result rows — **no full result sets**. Avoid putting
-sensitive PII into your dataset; if you must, encrypt at rest in Redis or
-host your own Redis instance instead of using a shared cloud service.
+1. Set `CORS_ALLOWED_ORIGINS` to your production frontend URL
+2. Ensure `SUPABASE_JWT_SECRET` is the correct signing secret
+3. Verify Docker is available on the deploy host
+4. Set appropriate rate limits for expected traffic
+5. Consider Redis-backed rate limiting for multi-worker deploys
+6. Monitor Supabase Storage usage against the 1GB free tier
+7. Set up log aggregation for security events

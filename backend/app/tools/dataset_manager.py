@@ -129,6 +129,13 @@ class SessionDataset:
 
     def execute(self, sql: str, timeout: float | None = None) -> Any:
         """Execute SQL against this session's DuckDB. Returns the result relation."""
+        from app.tools.sql_sanitizer import check_sql_safety
+
+        # Block filesystem-access functions
+        safety_error = check_sql_safety(sql)
+        if safety_error:
+            raise ValueError(safety_error)
+
         con = self.get_connection()
         self._last_query_at = time.time()
 

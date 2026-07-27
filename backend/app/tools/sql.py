@@ -187,6 +187,12 @@ class SQLTool:
                 ),
             )
 
+        # Block filesystem-access functions
+        from app.tools.sql_sanitizer import check_sql_safety
+        safety_error = check_sql_safety(sql_stripped)
+        if safety_error:
+            return SQLResult(sql=sql, error=safety_error)
+
         timeout_s = timeout if timeout is not None else settings.sql_timeout_seconds
         timer = threading.Timer(timeout_s, self.con.interrupt)
         timer.start()

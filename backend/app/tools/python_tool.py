@@ -103,6 +103,10 @@ def execute_python(code: str, parquet_paths: list[str] | None = None) -> PythonR
             f"--memory={MEMORY_LIMIT}",
             "--read-only",
             "--tmpfs", "/tmp:size=50m",
+            "--cpus=1",
+            "--pids-limit=64",
+            "--security-opt=no-new-privileges",
+            "--cap-drop=ALL",
         ]
 
         # Mount parquet files read-only
