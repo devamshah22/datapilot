@@ -56,6 +56,7 @@ tmp/
 .cache/
 my-session.json
 *.session.json
+Datapilot Client Secret*
 
 # Eval outputs (keep eval set, ignore run results)
 evals/results/
