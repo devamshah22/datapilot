@@ -146,17 +146,18 @@ def run_agent(question: str, session_id: str | None = None, user_id: str | None 
         schema = ds.schema_summary()
     else:
         # Check if files exist in Supabase Storage and restore them
-        ds = _try_restore_from_storage(session.session_id, mgr)
+        try:
+            ds = _try_restore_from_storage(session.session_id, mgr)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Storage restore failed: %s", e)
+            ds = None
+
         if ds and ds.files:
             schema = ds.schema_summary()
         else:
-            # No uploads — don't even call the LLM; return helpful response directly
-            return {
-                "question": question,
-                "route": "clarify",
-                "route_reason": "No data uploaded yet.",
-                "answer": "I don't have any data to analyze yet. Please upload a CSV or Excel file using the + button, then ask your question.",
-            }, session.session_id
+            # No uploads — still run the agent (chat route can answer general questions)
+            schema = "(No data uploaded yet. The user hasn't uploaded any files. If they ask a data question, tell them to upload a CSV or Excel file first. If they ask a general question, answer it normally.)"
 
     initial: AgentState = {
         "question": question,
