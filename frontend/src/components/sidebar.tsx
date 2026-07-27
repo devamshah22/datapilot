@@ -81,34 +81,29 @@ export function Sidebar({
       </div>
 
       {/* Footer — user avatar */}
-      <div className="p-3 border-t relative">
-        <button
-          onClick={() => setShowUserMenu(!showUserMenu)}
-          className="flex items-center gap-2 w-full rounded-md px-2 py-1.5 hover:bg-muted transition-colors"
+      <div className="p-3 border-t relative flex justify-center">
+        <div
+          className="relative"
+          onMouseEnter={() => setShowUserMenu(true)}
+          onMouseLeave={() => setShowUserMenu(false)}
         >
-          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+          <button className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
             <span className="text-sm font-medium text-primary-foreground">{initial}</span>
-          </div>
-          <span className="text-xs text-muted-foreground truncate flex-1 text-left">
-            {userEmail || "User"}
-          </span>
-        </button>
+          </button>
 
-        {/* Dropdown menu */}
-        {showUserMenu && (
-          <div className="absolute bottom-full left-3 right-3 mb-1 rounded-md border bg-popover p-1 shadow-md">
-            <p className="px-2 py-1.5 text-xs text-muted-foreground truncate">
-              {userEmail}
-            </p>
-            <button
-              onClick={() => { setShowUserMenu(false); onSignOut?.(); }}
-              className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-muted transition-colors text-destructive"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Sign out
-            </button>
-          </div>
-        )}
+          {/* Hover dropdown */}
+          {showUserMenu && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 rounded-md border bg-popover p-1 shadow-md min-w-[120px]">
+              <button
+                onClick={() => { setShowUserMenu(false); onSignOut?.(); }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm rounded hover:bg-muted transition-colors text-destructive"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
