@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     sql_timeout_seconds: float = Field(default=10.0, alias="SQL_TIMEOUT_SECONDS")
     rate_limit_ask: str = Field(default="10/minute", alias="RATE_LIMIT_ASK")
     rate_limit_default: str = Field(default="60/minute", alias="RATE_LIMIT_DEFAULT")
-    cors_allowed_origins: str = Field(default="*", alias="CORS_ALLOWED_ORIGINS")
+    cors_allowed_origins: str = Field(default="http://localhost:3000", alias="CORS_ALLOWED_ORIGINS")
 
     @property
     def cors_origins_list(self) -> list[str]:

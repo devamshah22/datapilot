@@ -118,7 +118,9 @@ export default function ChatPage() {
     } catch (err) {
       const errorMsg: LocalMessage = {
         role: "assistant",
-        content: "Something went wrong. Please try again or rephrase your question.",
+        content: err instanceof Error && err.message.includes("401")
+          ? "Your session expired. Please sign in again."
+          : "Something went wrong. Please try again or rephrase your question.",
         metadata: {},
       };
       setMessages((prev) => [...prev, errorMsg]);

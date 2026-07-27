@@ -15,7 +15,8 @@ import logging
 from typing import Optional
 
 import jwt
-from fastapi import Request, HTTPException
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
@@ -37,14 +38,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Extract token from Authorization header
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Missing or invalid authorization header"},
+            )
 
         token = auth_header[len("Bearer "):]
 
         # Validate JWT
         user_id = _validate_token(token)
         if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or expired token"},
+            )
 
         # Attach user_id to request state for downstream use
         request.state.user_id = user_id
@@ -52,14 +59,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 def _validate_token(token: str) -> Optional[str]:
-    """Validate a Supabase JWT and return the user_id (sub claim).
-
-    Supabase JWTs are signed with the JWT secret from project settings.
-    We decode and verify the signature, expiration, and extract sub.
-    """
+    """Validate a Supabase JWT and return the user_id (sub claim)."""
     try:
-        # Supabase JWT secret is derived from the project's JWT secret
-        # Found in: Project Settings → API → JWT Secret
         payload = jwt.decode(
             token,
             settings.supabase_jwt_secret,

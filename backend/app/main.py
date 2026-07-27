@@ -32,6 +32,20 @@ from app.tools.dataset_manager import (
 )
 from app.tools.ingest import IngestionError, IngestedFile, MAX_FILES_PER_BATCH, validate_and_convert
 
+
+def _verify_session_ownership(sid: str, user_id: str) -> None:
+    """Verify the authenticated user owns this session. Raises 403 if not."""
+    store = get_session_store()
+    backend = store._backend
+    if not isinstance(backend, SupabaseBackend):
+        return  # In-memory backend has no user scoping
+    res = backend._client.table("sessions").select("user_id").eq("id", sid).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    owner = res.data[0].get("user_id")
+    if owner and owner != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
 logging.basicConfig(
     level=settings.log_level,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -93,7 +107,19 @@ def health(request: Request) -> dict[str, str]:
 @app.get("/schema")
 @limiter.limit(settings.rate_limit_default)
 def schema(request: Request) -> dict[str, str]:
-    return {"schema": get_sql_tool().schema_summary()}
+    """Show the schema for the user's most recent session with uploads."""
+    user_id = request.state.user_id
+    store = get_session_store()
+    backend = store._backend
+    if isinstance(backend, SupabaseBackend):
+        sessions = backend.list_sessions(user_id=user_id)
+        if sessions:
+            mgr = get_dataset_manager()
+            for s in sessions:
+                ds = mgr.get(s["id"])
+                if ds and ds.files:
+                    return {"schema": ds.schema_summary()}
+    return {"schema": "No data uploaded yet. Upload a CSV or Excel file to see the schema."}
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -171,6 +197,7 @@ def upload_files(
 
     # Ensure the session exists in the session store
     user_id = request.state.user_id
+    _verify_session_ownership(sid, user_id)
     store = get_session_store()
     store.get_or_create(sid, user_id=user_id)
 
@@ -268,6 +295,8 @@ def list_sessions(request: Request) -> list[SessionListItem]:
 @limiter.limit(settings.rate_limit_default)
 def get_session(request: Request, sid: str) -> SessionDetail:
     """Get full message history for a session."""
+    user_id = request.state.user_id
+    _verify_session_ownership(sid, user_id)
     store = get_session_store()
     backend = store._backend
     if not isinstance(backend, SupabaseBackend):
@@ -298,10 +327,27 @@ def get_session(request: Request, sid: str) -> SessionDetail:
 @app.delete("/sessions/{sid}")
 @limiter.limit(settings.rate_limit_default)
 def delete_session(request: Request, sid: str) -> dict[str, str]:
-    """Delete a session and all its messages."""
+    """Delete a session and all its messages, files, and in-memory data."""
+    user_id = request.state.user_id
+    _verify_session_ownership(sid, user_id)
+
     store = get_session_store()
     backend = store._backend
     if not isinstance(backend, SupabaseBackend):
         raise HTTPException(status_code=404, detail="session storage not available")
+
+    # 1. Delete from database (sessions + messages + query_memories via CASCADE)
     backend.delete(sid)
+
+    # 2. Delete uploaded files from Supabase Storage
+    try:
+        from app.tools.file_storage import delete_session_files
+        delete_session_files(sid)
+    except Exception as e:
+        logger.warning("Failed to delete storage files for %s: %s", sid, e)
+
+    # 3. Close in-memory DuckDB connection
+    mgr = get_dataset_manager()
+    mgr.close_session(sid)
+
     return {"status": "deleted", "session_id": sid}
