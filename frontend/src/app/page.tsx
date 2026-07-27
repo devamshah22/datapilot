@@ -30,10 +30,12 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load sessions on mount
+  // Load sessions when user is authenticated
   useEffect(() => {
-    loadSessions();
-  }, []);
+    if (user) {
+      loadSessions();
+    }
+  }, [user]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
