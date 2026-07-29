@@ -56,13 +56,15 @@ export interface UploadResult {
 
 export async function askQuestion(
   question: string,
-  sessionId?: string
+  sessionId?: string,
+  signal?: AbortSignal
 ): Promise<AskResponse> {
   const authHeaders = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/ask`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({ question, session_id: sessionId || undefined }),
+    signal,
   });
   if (!res.ok) {
     const err = await res.text();

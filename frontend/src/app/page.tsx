@@ -30,6 +30,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load sessions when user is authenticated
   useEffect(() => {
@@ -101,8 +102,12 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
+    // Create abort controller for this request
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
-      const response = await askQuestion(question, activeSessionId || undefined);
+      const response = await askQuestion(question, activeSessionId || undefined, controller.signal);
 
       // Set session if new
       if (!activeSessionId) {
@@ -124,16 +129,33 @@ export default function ChatPage() {
       // Refresh session list
       await loadSessions();
     } catch (err) {
-      const errorMsg: LocalMessage = {
-        role: "assistant",
-        content: err instanceof Error && err.message.includes("401")
-          ? "Your session expired. Please sign in again."
-          : "Something went wrong. Please try again or rephrase your question.",
-        metadata: {},
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      if (err instanceof Error && err.name === "AbortError") {
+        // User cancelled — add a note
+        const cancelMsg: LocalMessage = {
+          role: "assistant",
+          content: "Generation stopped.",
+          metadata: {},
+        };
+        setMessages((prev) => [...prev, cancelMsg]);
+      } else {
+        const errorMsg: LocalMessage = {
+          role: "assistant",
+          content: err instanceof Error && err.message.includes("401")
+            ? "Your session expired. Please sign in again."
+            : "Something went wrong. Please try again or rephrase your question.",
+          metadata: {},
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
+    }
+  }
+
+  function handleStop() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   }
 
@@ -238,8 +260,8 @@ export default function ChatPage() {
           <ChatInput
             onSend={handleSend}
             onUpload={handleUpload}
+            onStop={handleStop}
             loading={loading}
-            disabled={loading}
           />
         </div>
       </div>
