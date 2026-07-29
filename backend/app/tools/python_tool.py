@@ -130,7 +130,8 @@ def execute_python(code: str, parquet_paths: list[str] | None = None) -> PythonR
     except subprocess.TimeoutExpired:
         return PythonResult(code=code, error=f"Execution exceeded {EXECUTION_TIMEOUT}s timeout.")
     except FileNotFoundError:
-        return PythonResult(code=code, error="Docker is not available. Ensure Docker Desktop is running.")
+        # Docker not available — fall back to restricted subprocess
+        return _execute_subprocess_fallback(code, parquet_paths)
     except Exception as e:
         return PythonResult(code=code, error=f"Execution failed: {type(e).__name__}: {e}")
     finally:
@@ -182,3 +183,53 @@ if 'result' in dir():
     else:
         print(_r)
 """
+
+
+def _execute_subprocess_fallback(code: str, parquet_paths: list[str]) -> PythonResult:
+    """Fallback: execute Python in a subprocess when Docker is unavailable.
+
+    Less isolated than Docker but still:
+    - Has a timeout (10s)
+    - Runs with empty env (no API keys leak)
+    - Import validation already done before this is called
+    - Temporary script file deleted after execution
+
+    Used on Cloud Run and other environments without Docker daemon access.
+    """
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    harness = _build_harness(code, parquet_paths)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(harness)
+        script_path = Path(f.name)
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=EXECUTION_TIMEOUT,
+            env={"PATH": "", "HOME": tempfile.gettempdir()},
+            cwd=tempfile.gettempdir(),
+        )
+    except subprocess.TimeoutExpired:
+        return PythonResult(code=code, error=f"Execution exceeded {EXECUTION_TIMEOUT}s timeout.")
+    except Exception as e:
+        return PythonResult(code=code, error=f"Subprocess execution failed: {type(e).__name__}: {e}")
+    finally:
+        script_path.unlink(missing_ok=True)
+
+    if result.returncode != 0:
+        error_msg = (result.stderr or "Unknown error").strip()[-500:]
+        return PythonResult(code=code, error=error_msg)
+
+    output = result.stdout.strip()
+    if not output:
+        return PythonResult(code=code, output="(code ran successfully but produced no output)")
+
+    return PythonResult(code=code, output=output)

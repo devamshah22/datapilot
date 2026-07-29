@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+.env
+.env.local
+data/*.csv
+data/*.parquet
+uploads/
+*.log
+my-session.json
+start-dev.bat
+Datapilot Client Secret*
+evals/results/
