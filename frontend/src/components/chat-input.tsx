@@ -31,6 +31,15 @@ export function ChatInput({ onSend, onUpload, onStop, disabled, loading }: ChatI
       e.preventDefault();
       handleSubmit();
     }
+    // Shift+Enter: default behavior (newline) — trigger resize after
+    if (e.key === "Enter" && e.shiftKey) {
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
+        }
+      }, 0);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
