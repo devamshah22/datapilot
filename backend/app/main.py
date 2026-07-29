@@ -152,6 +152,16 @@ def ask(request: Request, req: AskRequest = Body(...)) -> AskResponse:
     store = get_session_store()
     backend = store._backend
     if isinstance(backend, SupabaseBackend):
+        # Auto-title: set session title to first question if not already titled
+        try:
+            res = backend._client.table("sessions").select("title").eq("id", session_id).execute()
+            if res.data and not res.data[0].get("title"):
+                backend._client.table("sessions").update(
+                    {"title": req.question[:100]}
+                ).eq("id", session_id).execute()
+        except Exception:
+            pass
+
         # Save user message
         backend.save_message(session_id, "user", req.question)
         # Save assistant message with metadata

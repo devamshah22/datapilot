@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2, MessageSquare, LogOut, Pencil, Check, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Plus, Trash2, MessageSquare, LogOut, MoreHorizontal, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { SessionListItem } from "@/lib/api";
@@ -30,7 +30,20 @@ export function Sidebar({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const initial = userEmail ? userEmail[0].toUpperCase() : "?";
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const startRename = (sid: string, currentTitle: string) => {
     setEditingId(sid);
@@ -104,25 +117,44 @@ export function Sidebar({
                   <span className="flex-1 truncate">
                     {s.title || "Untitled chat"}
                   </span>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                  <div className="relative">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        startRename(s.session_id, s.title || "");
+                        setMenuOpenId(menuOpenId === s.session_id ? null : s.session_id);
                       }}
-                      aria-label="Rename chat"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      aria-label="Session options"
                     >
-                      <Pencil className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                      <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteSession(s.session_id);
-                      }}
-                      aria-label="Delete chat"
-                    >
-                      <Trash2 className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                    </button>
+
+                    {menuOpenId === s.session_id && (
+                      <div ref={menuRef} className="absolute right-0 top-full mt-1 z-50 rounded-md border bg-popover p-1 shadow-md min-w-[120px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenId(null);
+                            startRename(s.session_id, s.title || "");
+                          }}
+                          className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-muted transition-colors"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          Rename
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenId(null);
+                            onDeleteSession(s.session_id);
+                          }}
+                          className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-muted transition-colors text-destructive"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
