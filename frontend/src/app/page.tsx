@@ -11,6 +11,7 @@ import {
   listSessions,
   getSession,
   deleteSession,
+  renameSession,
   uploadFiles,
   type SessionListItem,
   type Message,
@@ -86,6 +87,11 @@ export default function ChatPage() {
       setActiveSessionId(null);
       setMessages([]);
     }
+    await loadSessions();
+  }
+
+  async function handleRenameSession(sid: string, title: string) {
+    await renameSession(sid, title);
     await loadSessions();
   }
 
@@ -190,6 +196,7 @@ export default function ChatPage() {
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
         onSignOut={signOut}
         userEmail={user?.email}
       />

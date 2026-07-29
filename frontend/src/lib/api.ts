@@ -90,6 +90,15 @@ export async function deleteSession(sid: string): Promise<void> {
   await fetch(`${API_BASE}/sessions/${sid}`, { method: "DELETE", headers: authHeaders });
 }
 
+export async function renameSession(sid: string, title: string): Promise<void> {
+  const authHeaders = await getAuthHeaders();
+  await fetch(`${API_BASE}/sessions/${sid}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function uploadFiles(
   sid: string,
   files: File[]

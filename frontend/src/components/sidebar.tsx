@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, MessageSquare, LogOut } from "lucide-react";
+import { Plus, Trash2, MessageSquare, LogOut, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { SessionListItem } from "@/lib/api";
@@ -12,6 +12,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectSession: (sid: string) => void;
   onDeleteSession: (sid: string) => void;
+  onRenameSession?: (sid: string, title: string) => void;
   onSignOut?: () => void;
   userEmail?: string;
 }
@@ -22,17 +23,32 @@ export function Sidebar({
   onNewChat,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   onSignOut,
   userEmail,
 }: SidebarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
   const initial = userEmail ? userEmail[0].toUpperCase() : "?";
+
+  const startRename = (sid: string, currentTitle: string) => {
+    setEditingId(sid);
+    setEditTitle(currentTitle || "");
+  };
+
+  const confirmRename = () => {
+    if (editingId && editTitle.trim()) {
+      onRenameSession?.(editingId, editTitle.trim());
+    }
+    setEditingId(null);
+  };
 
   return (
     <div className="w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between">
-        <h1 className="font-semibold text-sm">DataPilot</h1>
+        <h1 className="font-bold text-base">DataPilot</h1>
         <ThemeToggle />
       </div>
 
@@ -59,22 +75,57 @@ export function Sidebar({
                   ? "bg-primary/10 text-primary"
                   : "hover:bg-muted text-muted-foreground hover:text-foreground"
               }`}
-              onClick={() => onSelectSession(s.session_id)}
+              onClick={() => editingId !== s.session_id && onSelectSession(s.session_id)}
             >
               <MessageSquare className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1 truncate">
-                {s.title || "Untitled chat"}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSession(s.session_id);
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Delete chat"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
-              </button>
+
+              {editingId === s.session_id ? (
+                <div className="flex-1 flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmRename();
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="flex-1 bg-background border rounded px-1 py-0.5 text-xs outline-none"
+                    autoFocus
+                  />
+                  <button onClick={confirmRename}>
+                    <Check className="w-3 h-3 text-green-500" />
+                  </button>
+                  <button onClick={() => setEditingId(null)}>
+                    <X className="w-3 h-3 text-muted-foreground" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="flex-1 truncate">
+                    {s.title || "Untitled chat"}
+                  </span>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startRename(s.session_id, s.title || "");
+                      }}
+                      aria-label="Rename chat"
+                    >
+                      <Pencil className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(s.session_id);
+                      }}
+                      aria-label="Delete chat"
+                    >
+                      <Trash2 className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>

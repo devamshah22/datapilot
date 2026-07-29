@@ -336,6 +336,26 @@ def get_session(request: Request, sid: str) -> SessionDetail:
     )
 
 
+@app.patch("/sessions/{sid}")
+@limiter.limit(settings.rate_limit_default)
+def rename_session(request: Request, sid: str, body: dict = Body(...)) -> dict:
+    """Rename a session."""
+    user_id = request.state.user_id
+    _verify_session_ownership(sid, user_id)
+
+    title = body.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    store = get_session_store()
+    backend = store._backend
+    if not isinstance(backend, SupabaseBackend):
+        raise HTTPException(status_code=404, detail="Not available")
+
+    backend._client.table("sessions").update({"title": title[:100]}).eq("id", sid).execute()
+    return {"status": "renamed", "session_id": sid, "title": title[:100]}
+
+
 @app.delete("/sessions/{sid}")
 @limiter.limit(settings.rate_limit_default)
 def delete_session(request: Request, sid: str) -> dict[str, str]:

@@ -176,15 +176,18 @@ class SupabaseBackend:
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Upsert session row
+        # Upsert session row — always update title from first query if available
+        title = session.recent_queries[0].question[:100] if session.recent_queries else None
+
         row = {
             "id": session.session_id,
-            "title": session.recent_queries[0].question if session.recent_queries else None,
             "created_at": datetime.fromtimestamp(session.created_at, tz=timezone.utc).isoformat(),
             "last_accessed_at": now_iso,
         }
         if user_id:
             row["user_id"] = user_id
+        if title:
+            row["title"] = title
 
         self._client.table("sessions").upsert(row).execute()
 
