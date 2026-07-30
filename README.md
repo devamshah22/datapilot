@@ -106,8 +106,6 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000
-
 ## Deployment
 
 - **Backend:** Google Cloud Run (auto-deploys from `main` branch)
