@@ -1,149 +1,118 @@
 # DataPilot
 
-Conversational data analysis for CSV files. Ask questions in plain English; an LLM agent picks the right tool (SQL, Python, or visualization), executes it in a sandbox, validates the result, and returns the answer with the code that produced it.
+**Live demo:** [datapilot-theta.vercel.app](https://datapilot-theta.vercel.app)
 
-> **Status:** 🚧 Early development. Building in public. See [docs/PROGRESS.md](docs/PROGRESS.md) for week-by-week updates.
+Upload any CSV or Excel file and ask questions in plain English. The AI agent autonomously picks between SQL, Python, and visualization tools — then executes, validates, self-corrects on error, and returns the answer with a chart.
 
-## Why this exists
+## What it does
 
-Text-to-SQL tools are common. DataPilot goes further:
+1. **Upload** your CSV or Excel file (up to 10MB)
+2. **Ask** questions in natural language
+3. **Get answers** as text, tables, or interactive charts
+4. **Follow up** — the agent remembers context across turns
 
-- **Multi-tool routing** — the agent chooses between SQL (DuckDB), Python (sandboxed pandas), and Plotly visualizations based on the question.
-- **Self-correction** — when execution fails, the agent reasons about *why* and retries with a fix, up to a bounded number of attempts.
-- **Output validation** — every result is sanity-checked (row counts, types, plausibility) before being shown. Reduces silent hallucinations.
-- **Transparent reasoning** — every answer ships with the code that produced it and the agent's tool-choice rationale.
-- **In-session memory** — follow-up questions inherit context from earlier turns without poisoning later ones.
+The agent decides *how* to answer each question:
 
-## Architecture (planned)
-
-```
-User Query
-   │
-   ▼
-[Router]   ── decides: SQL? Python? Viz? Clarify?
-   │
-   ▼
-[Executor] ── runs in sandbox, captures output and errors
-   │
-   ▼
-[Validator] ── sanity-checks output before returning
-   │
-   ▼
-[Self-Correction] ── on failure, diagnose root cause and retry (≤3)
-   │
-   ▼
-[Memory]    ── update structured session state
-   │
-   ▼
-Response: answer + code + chart + reasoning trace
-```
-
-See [docs/architecture.md](docs/architecture.md) for the full design (coming soon).
+| Route | When | Example |
+|-------|------|---------|
+| SQL | Aggregations, filters, rankings | "Which category has the highest revenue?" |
+| Python | Stats, correlations, clustering | "Find outliers in price" |
+| Visualization | Charts and graphs | "Show monthly revenue as a line chart" |
+| Chat | General questions, explanations | "What columns do I have?" |
+| Clarify | Ambiguous questions | "How are sales doing?" → asks for specifics |
+| Refuse | Forecasting, causal claims | "What will revenue be next quarter?" |
 
 ## Tech stack
 
-| Layer        | Choice                                        | Why                                                            |
-| ------------ | --------------------------------------------- | -------------------------------------------------------------- |
-| LLM          | Groq (default) / Gemini (alt), via env var    | Pluggable provider. Groq's free tier is generous and fast.     |
-| Agent        | LangGraph                                     | State machines map cleanly to the routing + retry design       |
-| SQL engine   | DuckDB                                        | Runs SQL on CSVs in-process, fast, no setup                    |
-| Sandbox exec | E2B (planned)                                 | Isolated Python execution                                      |
-| Charts       | Plotly                                        | LLM-friendly JSON spec, web-renderable                         |
-| Backend      | FastAPI                                       | Same language as the agent                                     |
-| Frontend     | Next.js + shadcn/ui (planned)                 | Professional polish with low effort                            |
+| Layer | Choice |
+|-------|--------|
+| LLM | Groq (llama-3.3-70b) / Gemini — pluggable via env var |
+| Agent | LangGraph (state machine with routing + self-correction) |
+| SQL engine | DuckDB (queries Parquet files on disk, low RAM) |
+| Python sandbox | Docker container (local) / subprocess fallback (Cloud Run) |
+| Charts | Plotly (LLM picks chart type, frontend renders) |
+| Backend | FastAPI + Supabase (Postgres + Storage + Auth) |
+| Frontend | Next.js 16 + shadcn/ui + Tailwind |
+| Deployment | Google Cloud Run (backend) + Vercel (frontend) |
 
-## Behavior notes
+## Features
 
-- **Input language:** any. The agent understands questions in any major language (English, Portuguese, Spanish, Hindi, French, etc.).
-- **Output language:** always English. Output is consumed by data teams that work in English; consistent output beats inconsistent localization.
-- **LLM provider:** swap with one env var (`LLM_PROVIDER=groq` or `gemini`). All call sites use a single factory; provider-specific imports are quarantined to `backend/app/llm.py`.
-- **Session memory:** swap between process-local and persistent Redis with one env var (`SESSION_BACKEND=memory` or `redis`). Redis backend is Upstash-based and survives restarts, supporting follow-ups across days.
+- **Multi-tool autonomous agent** — routes to SQL, Python, viz, chat, clarify, or refuse
+- **Self-correction** — retries failed queries with diagnosis (up to 3 attempts)
+- **Docker-sandboxed Python** — LLM-generated code runs with no network, capped memory/CPU
+- **SQL sanitization** — blocks filesystem-access functions (read_csv_auto, etc.)
+- **File upload** — CSV/Excel → lossless Parquet compression → persistent in Supabase Storage
+- **Multi-user auth** — Supabase Auth (Google OAuth + email/password), JWT validation, RLS
+- **Session persistence** — conversations survive restarts, resumable across days
+- **Interactive charts** — Plotly with fullscreen modal, download as PNG, per-chart targeting
+- **Dark/light theme** — system default with manual toggle
+- **Rate limiting, CORS, query timeout** — production-grade safety
 
-## Safety
-
-DataPilot is a public-facing analytical service. Defense is structural, not textual.
-
-- **SELECT-only SQL** — the SQL tool rejects any statement whose first token isn't `SELECT` or `WITH`. DROP/DELETE/UPDATE/etc. cannot reach the database.
-- **In-memory database** — DuckDB runs with no filesystem persistence; restart wipes everything.
-- **Per-query timeout** — pathological SQL (`SELECT * FROM range(10^12)`) is killed via `connection.interrupt()`.
-- **Per-IP rate limits** — slowapi enforces `10/min` on `/ask` and `60/min` elsewhere by default.
-- **CORS allow-list** — configurable via `CORS_ALLOWED_ORIGINS`.
-- **Bounded result size** — at most 1000 rows are returned per query.
-- **Bounded input size** — questions are capped at 2000 characters by Pydantic.
-
-For the full threat model, deliberate non-decisions, and the pre-deployment checklist, see [docs/security.md](docs/security.md).
-
-## Repository layout
+## Architecture
 
 ```
-datapilot/
-├── backend/          FastAPI app, agent, tools
-│   └── app/
-│       ├── agent/    LangGraph state machine
-│       └── tools/    SQL / Python / viz tools
-├── frontend/         Next.js UI (later)
-├── evals/            Eval question set + harness
-├── data/             Dev CSVs (gitignored)
-├── scripts/          Dataset and one-off utility scripts
-└── docs/             Architecture, dataset notes, blog drafts
+User Question
+      │
+      ▼
+[Router] ── decides: SQL? Python? Viz? Chat? Clarify? Refuse?
+      │
+      ▼
+[Tool Executor] ── SQL (DuckDB) / Python (Docker) / LLM direct
+      │
+      ▼
+[Validator] ── sanity-checks result (zero rows? all null?)
+      │
+      ▼
+[Self-Correction] ── on failure: diagnose + retry (≤3 attempts)
+      │
+      ▼
+[Memory] ── update session context for follow-ups
+      │
+      ▼
+Response (answer + chart)
 ```
 
-## Development dataset
+## Security
 
-DataPilot is built against the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — 100k anonymized orders across 9 related tables.
+- SQL sanitizer blocks 20+ DuckDB filesystem-access functions
+- Docker sandbox: `--network=none`, `--memory=256m`, `--cpus=1`, `--cap-drop=ALL`
+- Supabase Auth with JWT validation (ES256 via JWKS + HS256 fallback)
+- Per-user session scoping with ownership verification
+- RLS policies on all tables (defense-in-depth)
+- Rate limiting (10/min on /ask, 60/min elsewhere)
+- File upload caps: 10MB/file, 500k rows, 200 columns
 
-- **v1 (early weeks):** agent operates on a denormalized 25-column flat CSV (`olist_v1_flat.csv`, 112k rows) for fast iteration.
-- **v2 (later weeks):** agent operates on the full multi-table schema, demonstrating cross-table reasoning.
-
-See [docs/dataset.md](docs/dataset.md) for full details, schema, and reproduction steps.
-
-> Dataset license: CC-BY-NC-SA-4.0. Used for non-commercial educational purposes.
+See [docs/security.md](docs/security.md) for the full threat model.
 
 ## Local development
 
-> Requires Python 3.10+, Node 20+, Git.
+> Requires Python 3.10+, Node 20+, Git, Docker (for Python sandbox).
 
 ```powershell
-# 1. Clone and enter
+# Clone
 git clone https://github.com/devamshah22/datapilot.git
 cd datapilot
 
-# 2. Set up env
-copy .env.example .env
-# Edit .env. Default provider is Groq (free tier, https://console.groq.com).
-# Optionally also set GEMINI_API_KEY if you want to switch via LLM_PROVIDER=gemini.
-
-# 3. Backend
+# Backend
+copy .env.example .env   # fill in your API keys
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r backend/requirements.txt
-
-# 4. Fetch data
-.\.venv\Scripts\kaggle.exe datasets download -d olistbr/brazilian-ecommerce -p data/ --unzip
-.\.venv\Scripts\python.exe scripts\load_olist.py
-
-# 5. Ask one question (CLI)
-.\.venv\Scripts\python.exe scripts\ask.py "Which product category has the highest revenue?"
-
-# 6. Or run the API
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir backend
-# then POST to http://localhost:8000/ask with body {"question": "..."}
-# Swagger UI at http://localhost:8000/docs
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
 ```
 
-> **Heads up (Windows):** Don't keep the dataset CSV open in Excel while running the app or tests. Excel takes an exclusive lock and DuckDB can't read it. Close Excel first.
+Open http://localhost:3000
 
-Frontend setup will be added once the backend MVP is working.
+## Deployment
 
-## Roadmap
-
-- [x] Week 1 — Project scaffold, eval seed set, CSV-to-DuckDB plumbing
-- [x] Week 2 — Minimal end-to-end SQL agent (LangGraph + Gemini + FastAPI)
-- [x] Week 3 — Router (SQL/viz/clarify/refuse) and Plotly visualization tool
-- [ ] Week 4 — Self-correction loop and output validator
-- [ ] Week 5 — Pandas tool (sandboxed); in-session memory; auto-EDA on upload
-- [ ] Week 6 — Eval suite, failure-mode analysis
-- [ ] Week 7 — Frontend, deployment, demo video, blog post
+- **Backend:** Google Cloud Run (auto-deploys from `main` branch)
+- **Frontend:** Vercel (auto-deploys from `main` branch, `frontend/` root)
+- **Database:** Supabase (Postgres + Storage + Auth)
 
 ## License
 
