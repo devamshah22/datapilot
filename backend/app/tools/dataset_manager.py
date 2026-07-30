@@ -131,8 +131,8 @@ class SessionDataset:
         """Execute SQL against this session's DuckDB. Returns the result relation."""
         from app.tools.sql_sanitizer import check_sql_safety
 
-        # Block filesystem-access functions
-        safety_error = check_sql_safety(sql)
+        # Allowlist check: only permit references to this session's registered tables
+        safety_error = check_sql_safety(sql, allowed_tables=self.table_names)
         if safety_error:
             raise ValueError(safety_error)
 

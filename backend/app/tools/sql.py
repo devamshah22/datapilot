@@ -189,7 +189,7 @@ class SQLTool:
 
         # Block filesystem-access functions
         from app.tools.sql_sanitizer import check_sql_safety
-        safety_error = check_sql_safety(sql_stripped)
+        safety_error = check_sql_safety(sql_stripped, allowed_tables=[self.table_name])
         if safety_error:
             return SQLResult(sql=sql, error=safety_error)
 
