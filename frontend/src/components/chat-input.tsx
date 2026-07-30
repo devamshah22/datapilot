@@ -1,17 +1,16 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Send, Plus, Loader2, Square } from "lucide-react";
+import { Send, Plus, Square } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   onUpload: (files: File[]) => void;
   onStop?: () => void;
-  disabled?: boolean;
   loading?: boolean;
 }
 
-export function ChatInput({ onSend, onUpload, onStop, disabled, loading }: ChatInputProps) {
+export function ChatInput({ onSend, onUpload, onStop, loading }: ChatInputProps) {
   const [input, setInput] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -72,8 +71,7 @@ export function ChatInput({ onSend, onUpload, onStop, disabled, loading }: ChatI
           />
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={disabled}
-            className="flex-shrink-0 p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-50"
+            className="flex-shrink-0 p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             aria-label="Upload files"
           >
             <Plus className="w-5 h-5" />

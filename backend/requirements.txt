@@ -3,13 +3,11 @@ fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
 pydantic-settings==2.7.0
-python-dotenv==1.0.1
 python-multipart==0.0.19
 slowapi==0.1.9
 PyJWT==2.10.1
 
 # LLM + Agent
-google-generativeai==0.8.3
 langgraph==0.2.60
 langchain-core==0.3.28
 langchain-google-genai==2.0.7
@@ -18,12 +16,8 @@ langchain-groq==0.2.2
 # Data
 duckdb==1.1.3
 pandas==2.2.3
-numpy==2.2.0
 pyarrow==18.1.0
 openpyxl==3.1.5
-
-# Visualization (server-side spec generation)
-plotly==5.24.1
 
 # Session storage (Supabase Postgres backend)
 supabase==2.11.0

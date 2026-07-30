@@ -113,12 +113,4 @@ def decide_after_router(state: AgentState) -> str:
     return state["route"]
 
 
-def decide_after_sql(state: AgentState) -> str:
-    """Conditional edge after execute_sql.
 
-    Viz route with a successful SQL result needs a chart-spec step before
-    the final answer composer. Otherwise jump straight to compose_answer.
-    """
-    if state.get("route") == "viz" and not state.get("error"):
-        return "make_chart"
-    return "compose_answer"
