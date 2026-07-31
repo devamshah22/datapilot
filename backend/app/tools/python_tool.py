@@ -138,8 +138,12 @@ def execute_python(code: str, parquet_paths: list[str] | None = None) -> PythonR
         script_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
-        error_msg = (result.stderr or "Unknown error").strip()[-500:]
-        return PythonResult(code=code, error=error_msg)
+        error_msg = (result.stderr or "Unknown error").strip()
+        # If Docker daemon isn't running, fall back to subprocess execution
+        if "docker API" in error_msg or "daemon is running" in error_msg or "Cannot connect to the Docker" in error_msg:
+            logger.info("Docker unavailable, using subprocess fallback")
+            return _execute_subprocess_fallback(code, parquet_paths)
+        return PythonResult(code=code, error=error_msg[-500:])
 
     output = result.stdout.strip()
     if not output:
@@ -148,9 +152,15 @@ def execute_python(code: str, parquet_paths: list[str] | None = None) -> PythonR
     return PythonResult(code=code, output=output)
 
 
-def _build_harness(user_code: str, parquet_paths: list[str]) -> str:
-    """Wrap user code in a harness that loads data and captures output."""
-    # Load each parquet file as df_0, df_1, etc. Set df = df_0 for convenience.
+def _build_harness(user_code: str, parquet_paths: list[str], use_docker_paths: bool = True) -> str:
+    """Wrap user code in a harness that loads data and captures output.
+
+    Parameters
+    ----------
+    use_docker_paths : bool
+        If True, references /data/{filename} (Docker mount point).
+        If False, uses the real host paths (subprocess fallback).
+    """
     load_lines = [
         "import pandas as pd",
         "import numpy as np",
@@ -159,9 +169,12 @@ def _build_harness(user_code: str, parquet_paths: list[str]) -> str:
     ]
 
     if parquet_paths:
-        filenames = [Path(p).name for p in parquet_paths]
-        for i, fname in enumerate(filenames):
-            load_lines.append(f"df_{i} = pd.read_parquet('/data/{fname}')")
+        for i, p in enumerate(parquet_paths):
+            if use_docker_paths:
+                path_ref = f"/data/{Path(p).name}"
+            else:
+                path_ref = Path(p).resolve().as_posix()
+            load_lines.append(f"df_{i} = pd.read_parquet(r'{path_ref}')")
         load_lines.append("df = df_0  # convenience alias for the first file")
     else:
         load_lines.append("df = pd.DataFrame()  # no data loaded")
@@ -200,7 +213,7 @@ def _execute_subprocess_fallback(code: str, parquet_paths: list[str]) -> PythonR
     import tempfile
     from pathlib import Path
 
-    harness = _build_harness(code, parquet_paths)
+    harness = _build_harness(code, parquet_paths, use_docker_paths=False)
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", delete=False, encoding="utf-8"
@@ -214,7 +227,6 @@ def _execute_subprocess_fallback(code: str, parquet_paths: list[str]) -> PythonR
             capture_output=True,
             text=True,
             timeout=EXECUTION_TIMEOUT,
-            env={"PATH": "", "HOME": tempfile.gettempdir()},
             cwd=tempfile.gettempdir(),
         )
     except subprocess.TimeoutExpired:

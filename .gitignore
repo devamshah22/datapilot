@@ -58,6 +58,8 @@ my-session.json
 *.session.json
 Datapilot Client Secret*
 start-dev.bat
+*Resume*.pdf
+*resume*.pdf
 
 # Eval outputs (keep eval set, ignore run results)
 evals/results/

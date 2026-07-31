@@ -6,23 +6,19 @@ scores route correctness and execution success, and writes results to JSON.
 Usage from project root:
     .\.venv\Scripts\python.exe scripts\run_eval.py
 
-Outputs:
-    evals/results/latest.json   — full per-question results
-    stdout                      — summary table with accuracy %
+The harness creates a test session, uploads the Olist flat CSV (simulating a
+real user upload), then runs every question against that session.
 
-Scoring criteria:
-    1. Route match:  did the agent pick the expected route? (sql/viz/clarify/refuse)
-    2. Execution ok: for sql/viz, did the query run without error?
-    3. Non-empty:    for sql/viz, did the query return at least 1 row?
-
-Follow-up questions run their prerequisite in the same session first.
-Python-category questions are skipped (pandas tool not built yet).
+Scoring:
+    1. Route match:  did the agent pick the expected route?
+    2. Execution ok: for sql/viz, did the query run and return rows?
 """
 from __future__ import annotations
 
 import json
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import yaml
@@ -31,6 +27,48 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.agent.graph import record_query_after_run, run_agent  # noqa: E402
+from app.tools.dataset_manager import get_dataset_manager  # noqa: E402
+from app.tools.ingest import validate_and_convert  # noqa: E402
+
+
+def setup_test_session() -> str:
+    """Create a session with a test dataset uploaded (simulates real usage).
+
+    Uses a sampled subset of the Olist data to stay under the 10MB upload cap.
+    """
+    session_id = f"eval{uuid.uuid4().hex[:12]}"
+    csv_path = ROOT / "data" / "olist_v1_flat.csv"
+    sample_path = ROOT / "data" / "olist_eval_sample.csv"
+
+    if not csv_path.exists():
+        print(f"ERROR: Test dataset not found at {csv_path}")
+        print("Run: .\\.venv\\Scripts\\python.exe scripts\\load_olist.py")
+        sys.exit(1)
+
+    # Create a sample under the 10MB upload cap if it doesn't exist
+    if not sample_path.exists():
+        import pandas as pd
+        print("Creating eval sample (first 25,000 rows)...")
+        df = pd.read_csv(csv_path, nrows=25_000)
+        df.to_csv(sample_path, index=False)
+        size_mb = sample_path.stat().st_size / (1024 * 1024)
+        print(f"  Sample: {len(df):,} rows, {size_mb:.1f} MB")
+
+    parquet_dir = ROOT / "uploads" / session_id
+    mgr = get_dataset_manager()
+    mgr.get_or_create(session_id, parquet_dir)
+
+    print(f"Uploading test dataset to session {session_id}...")
+    with open(sample_path, "rb") as f:
+        ingested = validate_and_convert(
+            filename="orders.csv",
+            file_data=f,
+            output_dir=parquet_dir,
+        )
+    mgr.add_file(session_id, ingested)
+    print(f"  Loaded table '{ingested.table_name}' ({ingested.row_count:,} rows, {len(ingested.columns)} cols)\n")
+
+    return session_id
 
 
 def load_questions() -> list[dict]:
@@ -41,10 +79,13 @@ def load_questions() -> list[dict]:
 
 
 def run_eval(delay_between: float = 3.0) -> dict:
+    # Set up a session with data uploaded
+    base_session = setup_test_session()
+
     questions = load_questions()
     results = []
     # Track sessions for follow-up chains
-    prerequisite_sessions: dict[str, str] = {}  # question_id -> session_id
+    prerequisite_sessions: dict[str, str] = {}
 
     total = 0
     route_correct = 0
@@ -55,50 +96,35 @@ def run_eval(delay_between: float = 3.0) -> dict:
         qid = q["id"]
         question_text = q["question"]
         expected_tool = q["expected_tool"]
-        category = q["category"]
         depends_on = q.get("depends_on")
-
-        # Skip python questions (tool not built)
-        if expected_tool == "python":
-            results.append({
-                "id": qid,
-                "question": question_text,
-                "expected_tool": expected_tool,
-                "status": "skipped",
-                "reason": "pandas tool not implemented yet",
-            })
-            skipped += 1
-            continue
 
         # Rate-limit delay (skip before the first question)
         if idx > 0 and delay_between > 0:
             time.sleep(delay_between)
 
         total += 1
-        session_id = None
+        # Use the base session (which has data) unless this is a follow-up
+        session_id = base_session
+        session_id = base_session
 
-        # For follow-ups, run the prerequisite first if not already done
-        if depends_on:
-            if depends_on in prerequisite_sessions:
-                session_id = prerequisite_sessions[depends_on]
-            else:
-                # Find and run the prerequisite question
-                prereq = next((p for p in questions if p["id"] == depends_on), None)
-                if prereq:
-                    try:
-                        pre_final, pre_sid = run_agent(prereq["question"])
-                        record_query_after_run(pre_sid, pre_final)
-                        prerequisite_sessions[depends_on] = pre_sid
-                        session_id = pre_sid
-                    except Exception as e:
-                        results.append({
-                            "id": qid,
-                            "question": question_text,
-                            "expected_tool": expected_tool,
-                            "status": "error",
-                            "reason": f"prerequisite {depends_on} failed: {e}",
-                        })
-                        continue
+        # For follow-ups, run the prerequisite first in the same session
+        if depends_on and depends_on not in prerequisite_sessions:
+            prereq = next((p for p in questions if p["id"] == depends_on), None)
+            if prereq:
+                try:
+                    pre_final, _ = run_agent(prereq["question"], session_id=base_session)
+                    record_query_after_run(base_session, pre_final)
+                    prerequisite_sessions[depends_on] = base_session
+                    time.sleep(delay_between)
+                except Exception as e:
+                    results.append({
+                        "id": qid,
+                        "question": question_text,
+                        "expected_tool": expected_tool,
+                        "status": "error",
+                        "reason": f"prerequisite {depends_on} failed: {e}",
+                    })
+                    continue
 
         # Run the question
         t0 = time.time()
@@ -134,8 +160,13 @@ def run_eval(delay_between: float = 3.0) -> dict:
             execution_success = not has_error and row_count > 0
             if execution_success:
                 exec_ok += 1
-        elif expected_tool in ("clarify", "refuse"):
-            # For clarify/refuse, success = route matched (no execution to check)
+        elif expected_tool == "python":
+            # Python route: success = no error and produced output
+            execution_success = not has_error and bool(final.get("python_output"))
+            if execution_success:
+                exec_ok += 1
+        elif expected_tool in ("clarify", "refuse", "chat"):
+            # No execution to check — success = route matched
             execution_success = route_match
             if execution_success:
                 exec_ok += 1
