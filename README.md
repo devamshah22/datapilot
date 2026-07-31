@@ -48,6 +48,19 @@ The agent decides *how* to answer each question:
 - **Dark/light theme** — system default with manual toggle
 - **Rate limiting, CORS, query timeout** — production-grade safety
 
+## Evaluation
+
+Measured against a 28-question eval suite (`evals/seed_questions.yaml`) covering all six routes:
+
+| Metric | Score |
+|--------|-------|
+| Tool-routing accuracy | **92.9%** (26/28) |
+| Execution accuracy | **85%** |
+
+Categories tested: SQL aggregations, Python statistics, visualizations, ambiguous questions requiring clarification, unanswerable questions requiring refusal, and multi-turn follow-ups depending on session memory.
+
+Run it yourself: `python scripts/run_eval.py`
+
 ## Architecture
 
 ```
