@@ -15,6 +15,8 @@ interface SidebarProps {
   onRenameSession?: (sid: string, title: string) => void;
   onSignOut?: () => void;
   userEmail?: string;
+  open?: boolean;
+  onClose?: () => void;
 }
 
 export function Sidebar({
@@ -26,6 +28,8 @@ export function Sidebar({
   onRenameSession,
   onSignOut,
   userEmail,
+  open = false,
+  onClose,
 }: SidebarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -58,11 +62,33 @@ export function Sidebar({
   };
 
   return (
-    <div className="w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden">
+    <>
+      {/* Mobile backdrop */}
+      {open && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <div
+        className={`w-64 h-screen border-r flex flex-col bg-muted/30 overflow-hidden shrink-0
+          fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:static md:z-auto md:translate-x-0
+          ${open ? "translate-x-0" : "-translate-x-full"}`}
+      >
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between">
         <img src="/datapilot-logo-v4-network.png" alt="DataPilot" className="h-10" />
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <button
+            onClick={onClose}
+            className="md:hidden p-2 rounded hover:bg-muted"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* New chat button */}
@@ -123,7 +149,7 @@ export function Sidebar({
                         e.stopPropagation();
                         setMenuOpenId(menuOpenId === s.session_id ? null : s.session_id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                      className="transition-opacity md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-muted"
                       aria-label="Session options"
                     >
                       <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
@@ -191,6 +217,7 @@ export function Sidebar({
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
