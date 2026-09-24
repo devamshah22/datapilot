@@ -8,13 +8,14 @@ interface ChatInputProps {
   onUpload: (files: File[]) => void;
   onStop?: () => void;
   loading?: boolean;
+  uploading?: boolean;
 }
 
 // Mirrors backend/app/tools/ingest.py caps so doomed uploads fail fast.
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_FILES_PER_BATCH = 5;
 
-export function ChatInput({ onSend, onUpload, onStop, loading }: ChatInputProps) {
+export function ChatInput({ onSend, onUpload, onStop, loading, uploading }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [uploadError, setUploadError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -110,7 +111,11 @@ export function ChatInput({ onSend, onUpload, onStop, loading }: ChatInputProps)
           />
 
           {/* Send or Stop button */}
-          {loading ? (
+          {uploading ? (
+            <span className="flex-shrink-0 p-2" aria-label="Uploading files">
+              <span className="block w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-foreground animate-spin" />
+            </span>
+          ) : loading ? (
             <button
               onClick={onStop}
               className="flex-shrink-0 p-2 rounded-full bg-foreground text-background hover:opacity-80 transition-opacity"

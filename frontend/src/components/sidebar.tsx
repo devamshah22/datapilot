@@ -36,6 +36,7 @@ export function Sidebar({
   const [editTitle, setEditTitle] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const initial = userEmail ? userEmail[0].toUpperCase() : "?";
 
   // Close menu when clicking outside
@@ -43,6 +44,9 @@ export function Sidebar({
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpenId(null);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
@@ -192,18 +196,23 @@ export function Sidebar({
       {/* Footer — user avatar */}
       <div className="p-3 border-t relative">
         <div
+          ref={userMenuRef}
           className="relative"
-          onMouseEnter={() => setShowUserMenu(true)}
-          onMouseLeave={() => setShowUserMenu(false)}
         >
-          <div className="flex items-center gap-2 px-1">
+          <button
+            type="button"
+            onClick={() => setShowUserMenu((visible) => !visible)}
+            aria-expanded={showUserMenu}
+            aria-label="Account menu"
+            className="flex items-center gap-2 px-1 w-full text-left rounded hover:bg-muted"
+          >
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
               <span className="text-sm font-medium text-primary-foreground">{initial}</span>
             </div>
             <span className="text-xs text-muted-foreground truncate">{userEmail || "User"}</span>
-          </div>
+          </button>
 
-          {/* Hover dropdown */}
+          {/* Account dropdown */}
           {showUserMenu && (
             <div className="absolute bottom-full left-0 mb-2 rounded-md border bg-popover p-1 shadow-md min-w-[120px]">
               <button

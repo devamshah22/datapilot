@@ -250,7 +250,7 @@ export default function ChatPage() {
         {/* Messages — scrollable independently */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !pendingAction ? (
               <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
                 <div className="text-center space-y-3">
                   <h2 className="text-2xl font-semibold text-foreground">
@@ -296,12 +296,13 @@ export default function ChatPage() {
         </div>
 
         {/* Input — pinned to bottom, centered when no messages */}
-        <div className={messages.length === 0 ? "absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 w-full max-w-3xl px-4" : ""}>
+        <div className={messages.length === 0 && !pendingAction ? "absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 w-full max-w-3xl px-4" : ""}>
           <ChatInput
             onSend={handleSend}
             onUpload={handleUpload}
             onStop={handleStop}
             loading={loading}
+            uploading={pendingAction === "uploading"}
           />
         </div>
       </div>
