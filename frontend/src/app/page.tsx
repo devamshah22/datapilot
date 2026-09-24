@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { Menu } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { LoginPage } from "@/components/login-page";
 import { Sidebar } from "@/components/sidebar";
@@ -29,6 +30,8 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"asking" | "uploading" | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -42,7 +45,7 @@ export default function ChatPage() {
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, pendingAction]);
 
   async function loadSessions() {
     try {
@@ -55,6 +58,7 @@ export default function ChatPage() {
 
   async function handleSelectSession(sid: string) {
     setActiveSessionId(sid);
+    setSidebarOpen(false);
     try {
       const detail = await getSession(sid);
       setMessages(
@@ -80,6 +84,7 @@ export default function ChatPage() {
   function handleNewChat() {
     setActiveSessionId(null);
     setMessages([]);
+    setSidebarOpen(false);
   }
 
   async function handleDeleteSession(sid: string) {
@@ -101,6 +106,7 @@ export default function ChatPage() {
     const userMsg: LocalMessage = { role: "user", content: question, metadata: {} };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
+    setPendingAction("asking");
 
     // Create abort controller for this request
     const controller = new AbortController();
@@ -149,6 +155,7 @@ export default function ChatPage() {
       }
     } finally {
       setLoading(false);
+      setPendingAction(null);
       abortControllerRef.current = null;
     }
   }
@@ -168,6 +175,7 @@ export default function ChatPage() {
     }
 
     setLoading(true);
+    setPendingAction("uploading");
     try {
       const result = await uploadFiles(sid, files);
 
@@ -198,6 +206,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setLoading(false);
+      setPendingAction(null);
     }
   }
 
@@ -221,14 +230,27 @@ export default function ChatPage() {
         onRenameSession={handleRenameSession}
         onSignOut={signOut}
         userEmail={user?.email}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       {/* Main chat area — flex column, own scroll */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
+        {/* Mobile header — opens the sidebar drawer */}
+        <div className="md:hidden flex items-center gap-2 border-b px-3 py-2">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="p-2 rounded hover:bg-muted"
+            aria-label="Open menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <span className="text-sm font-semibold">DataPilot</span>
+        </div>
         {/* Messages — scrollable independently */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !pendingAction ? (
               <div className="flex items-center justify-center min-h-[60vh] text-muted-foreground">
                 <div className="text-center space-y-3">
                   <h2 className="text-2xl font-semibold text-foreground">
@@ -249,6 +271,24 @@ export default function ChatPage() {
                     metadata={msg.metadata}
                   />
                 ))}
+                {pendingAction && (
+                  <div className="flex gap-3 p-4" aria-live="polite">
+                    <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="sr-only">Working</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-sm text-muted-foreground py-2">
+                      <span className="sr-only">
+                        {pendingAction === "uploading" ? "Uploading files…" : "Thinking…"}
+                      </span>
+                      <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.3s]" aria-hidden="true" />
+                      <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.15s]" aria-hidden="true" />
+                      <span className="w-2 h-2 rounded-full bg-muted-foreground/60 animate-bounce" aria-hidden="true" />
+                      <span className="ml-1">
+                        {pendingAction === "uploading" ? "Uploading…" : "Thinking…"}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </>
             )}
@@ -256,12 +296,13 @@ export default function ChatPage() {
         </div>
 
         {/* Input — pinned to bottom, centered when no messages */}
-        <div className={messages.length === 0 ? "absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 w-full max-w-3xl px-4" : ""}>
+        <div className={messages.length === 0 && !pendingAction ? "absolute bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2 w-full max-w-3xl px-4" : ""}>
           <ChatInput
             onSend={handleSend}
             onUpload={handleUpload}
             onStop={handleStop}
             loading={loading}
+            uploading={pendingAction === "uploading"}
           />
         </div>
       </div>

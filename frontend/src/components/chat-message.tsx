@@ -78,22 +78,38 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
     yaxis: { ...chartLayout.yaxis, gridcolor: "rgba(0,0,0,0.1)" },
   };
 
-  const downloadChart = (wrapperId: string) => {
-    const wrapper = document.getElementById(wrapperId);
-    const plotEl = wrapper?.querySelector(".js-plotly-plot");
-    if (!plotEl) return;
-    const Plotly = (window as any).Plotly;
-    if (!Plotly) return;
-    Plotly.relayout(plotEl, exportLayout).then(() => {
-      Plotly.downloadImage(plotEl, {
-        format: "png",
-        width: 1200,
-        height: 800,
-        filename: safeFilename,
-      }).then(() => {
-        Plotly.relayout(plotEl, chartLayout);
-      });
-    });
+  // react-plotly.js bundles its own Plotly copy without exposing it on
+  // window, so the old window.Plotly lookup silently no-ops. Reuse the
+  // same prebuilt bundle it loads and render the figure off-screen via
+  // toImage — the on-screen chart never flickers.
+  const downloadChart = async () => {
+    if (!chartSpec?.data) return;
+    // @ts-expect-error — plotly.js ships no types for the dist subpath;
+    // @types/plotly.js covers the API shape used here.
+    const PlotlyBundle = (await import("plotly.js/dist/plotly")) as unknown as {
+      toImage?: (
+        figure: { data: unknown; layout: unknown },
+        opts: { format: "png"; width: number; height: number }
+      ) => Promise<string>;
+      default?: {
+        toImage: (
+          figure: { data: unknown; layout: unknown },
+          opts: { format: "png"; width: number; height: number }
+        ) => Promise<string>;
+      };
+    };
+    const toImage = PlotlyBundle.toImage ?? PlotlyBundle.default?.toImage;
+    if (!toImage) return;
+    const url = await toImage(
+      { data: chartSpec.data, layout: exportLayout },
+      { format: "png", width: 1200, height: 800 }
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeFilename}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   return (
@@ -126,9 +142,9 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
           {/* Chart (inline) */}
           {chartSpec && chartSpec.data && (
             <div className="mt-3 rounded border overflow-hidden relative group/chart">
-              <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
+              <div className="absolute top-2 right-2 z-10 flex gap-1 transition-opacity md:opacity-0 md:group-hover/chart:opacity-100">
                 <button
-                  onClick={() => downloadChart(chartId)}
+                  onClick={downloadChart}
                   className="p-1.5 rounded bg-background/80 border hover:bg-muted"
                   aria-label="Download chart"
                 >
@@ -158,7 +174,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
         {content && !isUpload && (
           <button
             onClick={handleCopy}
-            className="flex-shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+            className="flex-shrink-0 mt-1 transition-opacity md:opacity-0 md:group-hover:opacity-100 p-1 rounded hover:bg-muted"
             aria-label="Copy to clipboard"
           >
             {copied ? (
@@ -182,7 +198,7 @@ export function ChatMessage({ role, content, metadata }: ChatMessageProps) {
           >
             <div className="absolute top-2 right-2 z-10 flex gap-2">
               <button
-                onClick={() => downloadChart(`${chartId}-fs`)}
+                onClick={downloadChart}
                 className="p-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
                 aria-label="Download chart"
               >
